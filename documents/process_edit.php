@@ -1,11 +1,15 @@
 <?php
-// process_edit.php - معالجة تحرير المستند وإضافة حقول جديدة
+/*
+ ? process_edit.php - معالجة تحرير المستند وإضافة حقول جديدة
+ */
 require_once '../includes/session.php';
 checkLogin();
 require_once '../includes/config.php';
 require_once '../includes/database.php';
 
-// التحقق من أن المستخدم مسجل دخول وله صلاحية board
+/* 
+! التحقق من أن المستخدم مسجل دخول وله صلاحية board 
+*/
 if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_name'], ['board', 'sub_board', 'private_board'])) {
     header('Location: ../login.php');
     exit();

@@ -3,5 +3,18 @@
     "Codegeex.CommitMessage.LanguagePreference": "English",
     "Codegeex.Chat.LanguagePreference": "English",
     "Codegeex.Comment.LanguagePreference": "English",
-    "Codegeex.GenerationPreference": "line by line"
+    "Codegeex.GenerationPreference": "line by line",
+    "cSpell.words": [
+        "التحقق",
+        "المستخدم",
+        "المستند",
+        "تحرير",
+        "جديدة",
+        "حقول",
+        "دخول",
+        "صلاحية",
+        "مسجل",
+        "معالجة",
+        "وإضافة"
+    ]
 }
