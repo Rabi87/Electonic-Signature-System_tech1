@@ -1,0 +1,38 @@
+=== بداية add_workflow_step ===POST: Array
+(
+    [document_id] => 391
+    [fields] => note
+    [assigned_to] => 10
+    [step_type] => signature
+    [creator_note] => 
+)
+SESSION: === بداية add_workflow_step ===POST: Array
+(
+    [document_id] => 391
+    [fields] => note
+    [assigned_to] => 10
+    [step_type] => signature
+    [creator_note] => 
+)
+SESSION: === بداية add_workflow_step ===POST: Array
+(
+    [document_id] => 391
+    [fields] => note
+    [assigned_to] => 10
+    [step_type] => signature
+    [creator_note] => 
+)
+SESSION: Array
+(
+    [user_id] => 8
+    [username] => rabi
+    [full_name] => عيد سعيد
+    [site] => الإدارة المركزية
+    [role_id] => 4
+    [role_name] => section_manager
+    [department_id] => 3
+    [user_type] => section_manager
+    [site_name] => الإدارة المركزية
+    [title] => رئيس قسم
+    [login_time] => 1771106295
+)

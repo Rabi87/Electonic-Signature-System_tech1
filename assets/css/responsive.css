@@ -1,0 +1,116 @@
+/* ===== RESPONSIVE BREAKPOINTS ===== */
+
+/* Desktop (992px and above) - Show Desktop Layout */
+@media (min-width: 992px) {
+    .desktop-layout {
+        display: block;
+    }
+    
+    .mobile-layout {
+        display: none !important;
+    }
+    
+    .floating-tools,
+    .sidebar-toggle,
+    .mobile-header,
+    .mobile-actions {
+        display: none !important;
+    }
+}
+
+/* Tablet and Mobile (below 992px) - Show Mobile Layout */
+@media (max-width: 991px) {
+    .desktop-layout {
+        display: none;
+    }
+    
+    .mobile-layout {
+        display: block;
+    }
+    
+    .container {
+        padding: 0;
+        max-width: 100%;
+    }
+    
+    .upload-area {
+        grid-template-columns: 1fr;
+        min-height: auto;
+    }
+    
+    .pdf-preview {
+        min-height: 500px;
+        max-height: 70vh;
+    }
+    
+    .tools-list {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+    
+    .tool-item {
+        padding: 10px 5px;
+        font-size: 12px;
+    }
+    
+    .tool-item i {
+        font-size: 18px;
+    }
+}
+
+/* Mobile (below 768px) */
+@media (max-width: 768px) {
+    .main-content {
+        height: calc(100vh - 120px);
+    }
+    
+    .pdf-preview-area {
+        height: 60vh;
+    }
+    
+    .tools-list {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .form-control {
+        font-size: 16px;
+    }
+    
+    .modal-content {
+        width: 95%;
+        margin: 10% auto;
+        padding: 15px;
+    }
+}
+
+/* Small Mobile (below 480px) */
+@media (max-width: 480px) {
+    .pdf-preview-area {
+        height: 50vh;
+    }
+    
+    .tools-panel {
+        min-width: 200px;
+    }
+    
+    .signature-modal-content {
+        padding: 5px;
+    }
+    
+    .signature-header {
+        padding: 15px;
+    }
+    
+    .signature-body {
+        padding: 10px;
+    }
+    
+    .header-title {
+        font-size: 16px;
+    }
+    
+    .action-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+}

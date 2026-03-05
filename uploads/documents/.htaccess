@@ -1,0 +1,10 @@
+# تعطيل تنفيذ أي ملف PHP داخل هذا المجلد
+<FilesMatch "\.php$">
+    Require all denied
+</FilesMatch>
+
+# منع الوصول المباشر لجميع الملفات (اختياري)
+# يمكن السماح بملفات PDF فقط إذا أردت
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>

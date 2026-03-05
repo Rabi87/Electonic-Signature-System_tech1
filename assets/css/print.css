@@ -1,0 +1,916 @@
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: #2c3e50;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .document-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: auto;
+            background: linear-gradient(135deg,
+                    #164a40 0%,
+                    rgba(140, 119, 79, 1) 50%,
+                    rgba(140, 119, 79, 1) 100%);
+        }
+
+        .document-wrapper {
+            position: relative;
+            margin: 10px auto;
+            padding: 10px;
+            max-width: 1200px;
+        }
+
+        #pdfViewer {
+            position: relative;
+            width: 1100px;
+            /* عرض ثابت للمستند */
+            margin: 0 auto;
+            /* توسيط أفقي */
+        }
+
+        .page {
+            position: relative;
+            margin: 0 auto;
+            background: white;
+            width: 1100px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* ========== الحقول ========== */
+        .signature-field {
+            position: absolute;
+            z-index: 100;
+            box-sizing: border-box;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        /* الحقول الموقعة - بدون إطار أو خلفية */
+        .signature-field.signed {
+            border: none !important;
+            background: none !important;
+            box-shadow: none !important;
+        }
+
+        /* الحقول غير الموقعة - إطار أحمر متقطع */
+        .signature-field:not(.signed) {
+            border: 2px dashed #070707 !important;
+            background: rgba(231, 77, 60, 0.42) !important;
+            cursor: pointer;
+        }
+
+        .signature-field:not(.signed):hover {
+            background: rgba(231, 76, 60, 0.1) !important;
+        }
+
+        /* حقل الملاحظة الموقعة */
+        .signature-field.signed[data-field-type="note"] {
+            background: #ffe600ff !important;
+            border: 2px dashed #f39c12 !important;
+            border-radius: 4px;
+        }
+
+        .signature-field.signed[data-field-type="note"] .note-content {
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            font-size: 14px;
+            color: #333;
+        }
+
+        /* الحقول غير مصرحة */
+        .signature-field.unauthorized {
+            border: 2px dashed #529051 !important;
+            background: rgba(74, 172, 76, 0.055) !important;
+            cursor: not-allowed;
+        }
+
+        /* أزرار التحكم - تظهر فقط عند hover */
+        .field-controls {
+            position: absolute;
+            top: -30px;
+            right: 50%;
+            transform: translateX(50%);
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1031;
+            pointer-events: none;
+        }
+
+        .signature-field:hover .field-controls {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .field-controls .control-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #f5f5f5;
+            color: white;
+            border: 2px solid #f5f5f5;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            transition: all 0.3s;
+            pointer-events: auto;
+            opacity: 0.9;
+        }
+
+        .field-controls .control-btn:hover {
+            transform: scale(1.1);
+            background: #040404;
+
+        }
+
+        .field-controls .control-btn.zoom-in {
+            background: #111111;
+        }
+
+        .field-controls .control-btn.zoom-out {
+            background: #090909;
+        }
+
+        .field-controls .control-btn.reset {
+            background: #0a0a0a;
+        }
+
+        /* معلومات الحقل - تظهر عند hover */
+        .field-info {
+            position: absolute;
+            bottom: calc(100% + 20px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.99);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 1002;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            min-width: 200px;
+            text-align: center;
+            direction: rtl;
+        }
+
+        .field-info::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 8px;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.53) transparent transparent transparent;
+        }
+
+        .signature-field:hover .field-info {
+            opacity: 0.9;
+        }
+
+        .field-info .info-line {
+            margin: 5px 0;
+            line-height: 1.4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .field-info .info-line i {
+            width: 14px;
+        }
+
+        /* محتوى الحقول */
+        .field-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2px;
+            box-sizing: border-box;
+        }
+
+        .signature-text {
+            font-family: 'Times New Roman', serif;
+            font-weight: bold;
+            color: #001496;
+            text-align: center;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            word-break: break-word;
+            box-sizing: border-box;
+            padding: 1px;
+        }
+
+        .signature-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        /* أيقونات الحقول غير المعبأة */
+        /* .signature-field:not(.signed) i {
+            
+            color: #ffffff;
+           
+        }*/
+
+        .signature-field:not(.signed) small {
+            display: block;
+            font-size: 8px;
+            color: #010101;
+            font-weight: bold;
+        }
+
+        /* الأزرار العائمة */
+        .floating-actions {
+            position: fixed;
+            bottom: 50%;
+            left: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 1000;
+        }
+
+        .btn-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #3498db;
+            color: white;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+            font-size: 18px;
+        }
+
+        .btn-circle:hover {
+            transform: translateY(-5px) scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-warning {
+            background: #f39c12;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-info {
+            background: #3498db;
+        }
+
+        /* أدوات الزووم */
+        .zoom-controls {
+            position: fixed;
+            bottom: 50%;
+            right: 30px;
+            flex-direction: column;
+            padding: 10px;
+            border-radius: 25px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #ecf0f1;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .zoom-btn:hover {
+            background: #3498db;
+            color: white;
+        }
+
+        #zoomLevel {
+            font-weight: 600;
+            color: #2c3e50;
+            min-width: 50px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        /* النوافذ المنبثقة */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            overflow: hidden;
+            animation: modalFadeIn 0.3s;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 25px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .signature-canvas {
+            width: 100%;
+            height: 350px;
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            cursor: crosshair;
+            background: #f8f9fa;
+            touch-action: none;
+        }
+
+        /* حالة الملف غير موجود */
+        .empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #7f8c8d;
+        }
+
+        /* الإشعارات */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            left: 20px;
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 12px 20px;
+            background: #27ae60;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 9999;
+            animation: slideIn 0.3s;
+        }
+
+        .notification.error {
+            background: #e74c3c;
+        }
+
+        .notification.warning {
+            background: #f39c12;
+        }
+
+        .notification.info {
+            background: #3498db;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-100px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* =========== قسم عرض المرفقات =========== */
+        .attachments-display-section {
+
+            max-width: 1200px;
+
+
+
+        }
+
+        .attachment-display-item {
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .attachment-display-header {
+
+            padding: 15px 20px;
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .attachment-display-content {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .pdf-attachment-container {
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* نافذة معاينة الصور */
+        #imagePreviewModal .modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            background: rgba(0, 0, 0, 0.9);
+        }
+
+        #imagePreviewModal .modal-header {
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        #previewImage {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            border-radius: 5px;
+        }
+
+        /* الطباعة */
+        @media print {
+
+            .floating-actions,
+            .zoom-controls,
+            .field-controls,
+            .field-info {
+                display: none !important;
+            }
+
+            .signature-field.signed {
+                display: block !important;
+            }
+
+            .signature-field:not(.signed) {
+                display: none !important;
+            }
+
+            .attachments-display-section {
+                display: none !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .floating-actions {
+                bottom: 20px;
+                left: 20px;
+            }
+
+            .zoom-controls {
+                bottom: 20px;
+                right: 20px;
+            }
+
+            .btn-circle {
+                width: 45px;
+                height: 45px;
+            }
+
+            .field-info {
+                font-size: 7px;
+                padding: 6px 8px;
+                min-width: 150px;
+            }
+        }
+
+        /* خط الزمن */
+        .timeline {
+            position: relative;
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px 0;
+        }
+
+        .timeline::after {
+            content: '';
+            position: absolute;
+            width: 2px;
+            background: #3498db;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            margin-left: -1px;
+        }
+
+        .timeline-item {
+            padding: 10px 40px;
+            position: relative;
+            width: 50%;
+            box-sizing: border-box;
+        }
+
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border: 4px solid #3498db;
+            border-radius: 50%;
+            top: 15px;
+            z-index: 1;
+        }
+
+        .timeline-item.right::after {
+            right: -10px;
+        }
+
+        .timeline-item.left::after {
+            left: -10px;
+        }
+
+        .timeline-content {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .timeline-icon {
+            font-size: 1.5rem;
+        }
+
+        .timeline-date {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .timeline-body p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        /* أضف هذه الأنماط في قسم CSS في view_document.php */
+
+        /* زر حذف الملاحظة */
+        .field-controls .control-btn.delete-note {
+            background: #e74c3c;
+            border-color: #c0392b;
+        }
+
+        .field-controls .control-btn.delete-note:hover {
+            background: #c0392b;
+            transform: scale(1.2);
+        }
+
+        /* زر الحذف العائم للملاحظة */
+        .note-delete-btn {
+            position: absolute;
+            top: -12px;
+            left: -12px;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #e74c3c;
+            color: white;
+            border: 2px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 1001;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+
+        .signature-field[data-field-type="note"]:hover .note-delete-btn {
+            opacity: 1;
+        }
+
+        .note-delete-btn:hover {
+            background: #c0392b;
+            transform: scale(1.1);
+        }
+
+        .attachment-wrapper {
+            width: 1100px;
+            margin: 30px auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .attachment-header {
+            background: linear-gradient(135deg, #8c774f 0%, #a68c5e 100%);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: left;
+            border-bottom: 1px solid #dee2e6;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+
+        .attachment-header>div:first-child {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .attachment-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .attachment-title {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .attachment-title i {
+            margin-left: 8px;
+            color: #3498db;
+        }
+
+        .attachment-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .attachment-controls .control-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: green;
+            color: #2c3e50;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .attachment-controls .control-btn:hover {
+            background: #3498db;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .attachment-header .control-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: white;
+            color: #2c3e50;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+
+        }
+
+        .attachment-header .control-btn:hover {
+            background: #3498db;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .attachment-controls .zoom-level {
+            font-weight: 600;
+            color: #2c3e50;
+            min-width: 45px;
+            text-align: center;
+        }
+
+        .attachment-container {
+            width: 100%;
+            overflow: auto;
+
+            min-height: 200px;
+            background: #fafafa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .attachment-container img {
+            transition: transform 0.2s;
+            transform-origin: top left;
+        }
+
+        .attachment-page {
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            background: white;
+        }
+
+
+        @media print {
+
+            /* إخفاء كل العناصر غير المرغوب فيها */
+            .floating-actions,
+            .zoom-controls,
+            .field-controls,
+            .field-info,
+            .modal-overlay,
+            .notification,
+            .note-delete-btn,
+            .attachment-header,
+            .attachments-title,
+            .empty-state,
+            .btn-circle,
+            .control-btn,
+            .zoom-btn {
+                display: none !important;
+            }
+
+            /* إظهار الحقول الموقعة فقط */
+            .signature-field.signed {
+                display: block !important;
+                border: none !important;
+                background: none !important;
+                position: absolute;
+                /* المواقع محفوظة كـ px بناءً على 1100px */
+            }
+
+            .signature-field:not(.signed) {
+                display: none !important;
+            }
+
+            /* إظهار المرفقات */
+            .attachment-wrapper {
+                display: block !important;
+                page-break-before: always;
+                /* كل مرفق في صفحة جديدة */
+                page-break-inside: avoid;
+                margin: 0 auto !important;
+                width: 1100px !important;
+                /* نفس عرض المستند */
+            }
+
+            .attachment-container {
+                width: 100% !important;
+            }
+
+            .attachment-container img,
+            .attachment-container canvas {
+                width: 100% !important;
+                height: auto !important;
+                display: block;
+            }
+
+            /* ضبط خلفية الصفحة وهوامشها */
+            body,
+            .document-container,
+            .document-wrapper,
+            #pdfViewer {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+            }
+
+            /* حاوية المستند الرئيسية */
+            #pdfViewer {
+                max-width: 1100px !important;
+                margin: 0 auto !important;
+            }
+
+            /* صفحات المستند */
+            .page {
+                width: 1100px !important;
+                height: auto !important;
+                margin: 0 auto !important;
+                box-shadow: none !important;
+                page-break-after: always;
+                /* كل صفحة مستند في صفحة طباعة منفصلة */
+                position: relative;
+            }
+
+            /* canvas داخل الصفحة */
+            .page canvas {
+                width: 1100px !important;
+                height: auto !important;
+                display: block;
+            }
+
+            /* ضبط حجم الورق مع ترك الخيار للمستخدم */
+            @page {
+                size: A4 landscape;
+                /* اختياري، يمكن للمستخدم تغييره من نافذة الطباعة */
+                margin: 0.5cm;
+            }
+        }
