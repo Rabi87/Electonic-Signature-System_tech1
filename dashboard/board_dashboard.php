@@ -1358,17 +1358,261 @@ text-decoration: none;">
             </div>
 
             <!-- نافذة منبثقة لتتبع المسار -->
-            <div id="trackPopup" class="popup-overlay" style="display:none;">
-                <div class="popup-content">
-                    <div class="popup-header">
-                        <h3><i class="fas fa-project-diagram"></i> تتبع مسار المستند</h3>
-                        <button onclick="closeTrackPopup()" class="close-btn">&times;</button>
-                    </div>
-                    <div class="popup-body">
-                        <iframe id="trackIframe"></iframe>
+            <div id="trackPopup" class="track-popup-overlay" style="display:none;">
+                <div class="track-popup-wrapper">
+                    <div class="track-popup-glow"></div>
+                    <div class="track-popup-container">
+
+                        <!-- رأس النافذة -->
+                        <div class="track-popup-header">
+                            <div class="track-header-left">
+                                <div class="track-icon-badge">
+                                    <i class="fas fa-project-diagram"></i>
+                                </div>
+                                <div class="track-header-text">
+                                    <h3>تتبع مسار المستند</h3>
+                                    <span class="track-subtitle">عرض تفاصيل مسار المعالجة</span>
+                                </div>
+                            </div>
+                            <button onclick="closeTrackPopup()" class="track-close-btn">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- شريط التحميل المتحرك -->
+                        <div class="track-loading-bar" id="trackLoadingBar">
+                            <div class="track-loading-progress"></div>
+                        </div>
+
+                        <!-- جسم النافذة -->
+                        <div class="track-popup-body">
+                            <iframe id="trackIframe" onload="hideTrackLoader()"></iframe>
+                            <div class="track-loader" id="trackLoader">
+                                <div class="track-loader-inner">
+                                    <div class="track-spinner">
+                                        <div class="track-spinner-ring"></div>
+                                        <div class="track-spinner-ring"></div>
+                                        <div class="track-spinner-ring"></div>
+                                        <i class="fas fa-project-diagram track-spinner-icon"></i>
+                                    </div>
+                                    <p class="track-loader-text">جاري تحميل مسار المستند...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- تذييل النافذة -->
+                        <div class="track-popup-footer">
+                            <div class="track-footer-info">
+                                <i class="fas fa-info-circle"></i>
+                                <span>يمكنك التمرير داخل النافذة لمشاهدة كامل المسار</span>
+                            </div>
+                            <button onclick="closeTrackPopup()" class="track-footer-close-btn">
+                                <i class="fas fa-times-circle"></i> إغلاق
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            <style>
+            /* ===== نافذة تتبع المسار - تصميم متطور ===== */
+            .track-popup-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(5, 10, 30, 0.88);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: trackOverlayIn 0.3s ease;
+                padding: 15px;
+            }
+            @keyframes trackOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+            .track-popup-wrapper {
+                position: relative;
+                width: 100%;
+                max-width: 1150px;
+                height: 88vh;
+                animation: trackSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+            @keyframes trackSlideUp {
+                from { opacity: 0; transform: translateY(60px) scale(0.95); }
+                to   { opacity: 1; transform: translateY(0) scale(1); }
+            }
+
+            .track-popup-glow {
+                position: absolute;
+                inset: -3px;
+                border-radius: 24px;
+                background: linear-gradient(135deg, #441088, #6a1fd0, #2980b9, #441088);
+                background-size: 300% 300%;
+                animation: glowRotate 4s linear infinite;
+                filter: blur(10px);
+                opacity: 0.65;
+                z-index: -1;
+            }
+            @keyframes glowRotate {
+                0%   { background-position: 0% 50%; }
+                50%  { background-position: 100% 50%; }
+                100% { background-position: 0% 50%; }
+            }
+
+            .track-popup-container {
+                position: relative;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 40%, #0d1b3e 100%);
+                border-radius: 20px;
+                border: 1px solid rgba(100, 60, 200, 0.35);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
+            }
+
+            .track-popup-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 18px 25px;
+                background: linear-gradient(135deg, rgba(68,16,136,0.95) 0%, rgba(41,128,185,0.75) 100%);
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                flex-shrink: 0;
+                position: relative;
+                overflow: hidden;
+            }
+            .track-popup-header::before {
+                content: '';
+                position: absolute;
+                top: -50%; left: -50%;
+                width: 200%; height: 200%;
+                background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.06) 0%, transparent 60%);
+                pointer-events: none;
+            }
+
+            .track-header-left { display: flex; align-items: center; gap: 15px; }
+
+            .track-icon-badge {
+                width: 48px; height: 48px;
+                border-radius: 14px;
+                background: linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
+                border: 1px solid rgba(255,255,255,0.2);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.3rem; color: #fff;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+                animation: iconPulse 3s ease-in-out infinite;
+            }
+            @keyframes iconPulse {
+                0%, 100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3), 0 0 0 0 rgba(100,60,200,0.4); }
+                50%       { box-shadow: 0 4px 15px rgba(0,0,0,0.3), 0 0 0 10px rgba(100,60,200,0); }
+            }
+
+            .track-header-text h3 {
+                margin: 0; color: #fff; font-size: 1.15rem; font-weight: 700;
+                text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            }
+            .track-subtitle { font-size: 0.78rem; color: rgba(255,255,255,0.6); margin-top: 2px; display: block; }
+
+            .track-close-btn {
+                width: 40px; height: 40px; border-radius: 50%;
+                background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.2);
+                color: #fff; font-size: 1rem; cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                transition: all 0.25s ease; flex-shrink: 0;
+            }
+            .track-close-btn:hover {
+                background: rgba(231,76,60,0.8);
+                border-color: #e74c3c;
+                transform: rotate(90deg) scale(1.1);
+                box-shadow: 0 4px 15px rgba(231,76,60,0.5);
+            }
+
+            .track-loading-bar { height: 3px; background: rgba(255,255,255,0.05); flex-shrink: 0; overflow: hidden; }
+            .track-loading-progress {
+                height: 100%; width: 0%;
+                background: linear-gradient(90deg, #441088, #9b59b6, #2980b9, #9b59b6);
+                background-size: 200%;
+                animation: progressMove 2s ease forwards, shimmer 1.5s linear infinite;
+            }
+            @keyframes progressMove { 0%{width:0%} 30%{width:50%} 70%{width:80%} 100%{width:95%} }
+            @keyframes shimmer { 0%{background-position:0% center} 100%{background-position:200% center} }
+
+            .track-popup-body { flex: 1; position: relative; overflow: hidden; }
+            #trackIframe { width: 100%; height: 100%; border: none; display: block; background: #fff; }
+
+            .track-loader {
+                position: absolute; inset: 0;
+                background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 100%);
+                display: flex; align-items: center; justify-content: center; z-index: 5;
+                transition: opacity 0.4s ease;
+            }
+            .track-loader.hidden { opacity: 0; pointer-events: none; }
+            .track-loader-inner { text-align: center; }
+
+            .track-spinner { width: 80px; height: 80px; position: relative; margin: 0 auto 20px; }
+            .track-spinner-ring {
+                position: absolute; inset: 0; border-radius: 50%;
+                border: 3px solid transparent;
+                animation: spinRing 1.5s linear infinite;
+            }
+            .track-spinner-ring:nth-child(1) { border-top-color: #9b59b6; animation-duration: 1.2s; }
+            .track-spinner-ring:nth-child(2) { inset: 10px; border-right-color: #2980b9; animation-duration: 1.8s; animation-direction: reverse; }
+            .track-spinner-ring:nth-child(3) { inset: 20px; border-bottom-color: #441088; animation-duration: 1s; }
+            @keyframes spinRing { to { transform: rotate(360deg); } }
+
+            .track-spinner-icon {
+                position: absolute; top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 1.2rem; color: rgba(255,255,255,0.8);
+                animation: iconFade 1.5s ease-in-out infinite;
+            }
+            @keyframes iconFade { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+            .track-loader-text {
+                color: rgba(255,255,255,0.7); font-size: 0.9rem; margin: 0;
+                animation: textPulse 1.5s ease-in-out infinite;
+            }
+            @keyframes textPulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
+
+            .track-popup-footer {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 12px 25px;
+                background: rgba(0,0,0,0.3);
+                border-top: 1px solid rgba(255,255,255,0.07);
+                flex-shrink: 0;
+            }
+            .track-footer-info { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.4); font-size: 0.78rem; }
+            .track-footer-info i { color: #9b59b6; }
+
+            .track-footer-close-btn {
+                display: flex; align-items: center; gap: 7px;
+                padding: 8px 22px;
+                background: linear-gradient(135deg, rgba(68,16,136,0.7), rgba(41,128,185,0.5));
+                border: 1px solid rgba(155,89,182,0.5);
+                border-radius: 20px; color: #fff;
+                font-size: 0.82rem; font-weight: 600; cursor: pointer;
+                transition: all 0.25s ease;
+                font-family: 'Cairo', sans-serif;
+            }
+            .track-footer-close-btn:hover {
+                background: linear-gradient(135deg, #441088, #2980b9);
+                border-color: #9b59b6;
+                box-shadow: 0 4px 15px rgba(68,16,136,0.5);
+                transform: translateY(-1px);
+            }
+
+            @media (max-width: 768px) {
+                .track-popup-wrapper { height: 93vh; }
+                .track-popup-header { padding: 12px 15px; }
+                .track-header-text h3 { font-size: 0.95rem; }
+                .track-subtitle, .track-footer-info { display: none; }
+                .track-popup-footer { justify-content: center; }
+            }
+            </style>
 
             <!-- مودال تأكيد الأرشفة -->
 <div id="archiveConfirmModal" class="modal-overlay" style="display: none;">
@@ -1398,6 +1642,19 @@ text-decoration: none;">
     <!-- Toast Notifications Container -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <script>
+    // دالة إخفاء شاشة التحميل بعد اكتمال الـ iframe
+    function hideTrackLoader() {
+        const loader = document.getElementById('trackLoader');
+        const loadingBar = document.getElementById('trackLoadingBar');
+        if (loader) loader.classList.add('hidden');
+        if (loadingBar) {
+            const progress = loadingBar.querySelector('.track-loading-progress');
+            if (progress) progress.style.width = '100%';
+            setTimeout(() => { loadingBar.style.opacity = '0'; }, 400);
+        }
+    }
+    </script>
     <script src="../assets/js/board_scr.js"></script>
 </body>
 

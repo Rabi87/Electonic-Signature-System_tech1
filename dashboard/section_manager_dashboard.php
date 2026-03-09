@@ -181,8 +181,8 @@ $params = [];
 $where_conditions[] = "(d.created_by = :user_id OR d.current_holder_id = :user_id OR dw.to_user_id = :user_id OR df.assigned_to = :user_id)";
 $params[':user_id'] = $user_id;   // معامل واحد فقط لجميع الحقول
 
-// بقية الشروط تبقى كما هي مع تعديل المعاملات لاستخدام :user_id فقط
-$where_conditions[] = "(d.current_status != 'draft' OR d.created_by = :user_id)"; // لا نحتاج لإضافة معامل جديد
+// شرط استبعاد المسودات إلا إذا كان المستخدم هو منشئها
+$where_conditions[] = "(d.current_status != 'draft' OR d.created_by = :user_id)";
 
 if (!empty($search)) {
     $where_conditions[] = "(d.title LIKE :search OR d.description LIKE :search OR u.full_name LIKE :search)";
@@ -262,7 +262,7 @@ foreach ($importance_stats as $stat) {
     }
 }
 
-// جلب المستندات
+// جلب المستندات (جميعها معاً)
 $query = "
     SELECT DISTINCT
         d.*,
@@ -310,7 +310,7 @@ $query = "
 ";
 
 $stmt = $db->prepare($query);
-$stmt->execute($params);  // $params يحتوي الآن على :user_id فقط بالإضافة إلى شروط أخرى
+$stmt->execute($params);
 $documents_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // حساب العدد الإجمالي للمستندات
@@ -400,188 +400,9 @@ $subordinates_stmt = $db->prepare($subordinates_query);
 $subordinates_stmt->execute([':user_id' => $user_id]);
 $subordinates = $subordinates_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// إعداد pagination منفصل للمستندات غير المكتملة والمكتملة
-$records_per_page = 10;
-
-// الصفحة الحالية للمستندات غير المكتملة
-$page_incomplete = isset($_GET['page_incomplete']) && is_numeric($_GET['page_incomplete']) ? (int) $_GET['page_incomplete'] : 1;
-if ($page_incomplete < 1)
-    $page_incomplete = 1;
-$offset_incomplete = ($page_incomplete - 1) * $records_per_page;
-
-// الصفحة الحالية للمستندات المكتملة
-$page_completed = isset($_GET['page_completed']) && is_numeric($_GET['page_completed']) ? (int) $_GET['page_completed'] : 1;
-if ($page_completed < 1)
-    $page_completed = 1;
-$offset_completed = ($page_completed - 1) * $records_per_page;
-
-// --- جلب المستندات غير المكتملة (current_status != 'completed') ---
-$query_incomplete = "
-    SELECT DISTINCT
-        d.*,
-        u.full_name as creator_name,
-        u.email as creator_email,
-        u2.full_name as current_holder_name,
-        dep.name as department_name,
-        (SELECT COUNT(*) FROM signatures s WHERE s.document_id = d.id) as signatures_count,
-        (SELECT GROUP_CONCAT(DISTINCT su.full_name) FROM signatures sig 
-         LEFT JOIN users su ON sig.user_id = su.id WHERE sig.document_id = d.id) as signatories,
-        (SELECT full_name FROM users WHERE id = (
-            SELECT to_user_id 
-            FROM document_workflow 
-            WHERE document_id = d.id AND is_current_step = 1 
-            LIMIT 1
-        )) as assigned_to_name,
-        (SELECT fv.value_data 
-         FROM document_fields df 
-         LEFT JOIN field_values fv ON df.id = fv.field_id 
-         WHERE df.document_id = d.id 
-           AND df.field_type = 'text'
-           AND fv.value_data IS NOT NULL
-           AND TRIM(fv.value_data) != ''
-         ORDER BY fv.created_at DESC 
-         LIMIT 1) as public_number,
-        (SELECT fv.value_data 
-         FROM document_fields df 
-         LEFT JOIN field_values fv ON df.id = fv.field_id 
-         WHERE df.document_id = d.id 
-           AND df.field_type = 'text'
-           AND fv.value_data IS NOT NULL
-           AND TRIM(fv.value_data) != ''
-         ORDER BY fv.created_at ASC 
-         LIMIT 1) as private_number
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    LEFT JOIN users u2 ON d.current_holder_id = u2.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
-    LEFT JOIN document_workflow dw ON d.id = dw.document_id
-    LEFT JOIN document_fields df ON d.id = df.document_id
-    {$where_sql} AND d.current_status != 'completed'
-    GROUP BY d.id
-    ORDER BY {$sort_by} {$sort_order}
-    LIMIT {$records_per_page} OFFSET {$offset_incomplete}
-";
-$stmt_incomplete = $db->prepare($query_incomplete);
-$stmt_incomplete->execute($params);
-$documents_incomplete_raw = $stmt_incomplete->fetchAll(PDO::FETCH_ASSOC);
-
-// --- جلب المستندات المكتملة (current_status = 'completed') ---
-$query_completed = "
-    SELECT DISTINCT
-        d.*,
-        u.full_name as creator_name,
-        u.email as creator_email,
-        u2.full_name as current_holder_name,
-        dep.name as department_name,
-        (SELECT COUNT(*) FROM signatures s WHERE s.document_id = d.id) as signatures_count,
-        (SELECT GROUP_CONCAT(DISTINCT su.full_name) FROM signatures sig 
-         LEFT JOIN users su ON sig.user_id = su.id WHERE sig.document_id = d.id) as signatories,
-        (SELECT full_name FROM users WHERE id = (
-            SELECT to_user_id 
-            FROM document_workflow 
-            WHERE document_id = d.id AND is_current_step = 1 
-            LIMIT 1
-        )) as assigned_to_name,
-        (SELECT fv.value_data 
-         FROM document_fields df 
-         LEFT JOIN field_values fv ON df.id = fv.field_id 
-         WHERE df.document_id = d.id 
-           AND df.field_type = 'text'
-           AND fv.value_data IS NOT NULL
-           AND TRIM(fv.value_data) != ''
-         ORDER BY fv.created_at DESC 
-         LIMIT 1) as public_number,
-        (SELECT fv.value_data 
-         FROM document_fields df 
-         LEFT JOIN field_values fv ON df.id = fv.field_id 
-         WHERE df.document_id = d.id 
-           AND df.field_type = 'text'
-           AND fv.value_data IS NOT NULL
-           AND TRIM(fv.value_data) != ''
-         ORDER BY fv.created_at ASC 
-         LIMIT 1) as private_number
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    LEFT JOIN users u2 ON d.current_holder_id = u2.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
-    LEFT JOIN document_workflow dw ON d.id = dw.document_id
-    LEFT JOIN document_fields df ON d.id = df.document_id
-    {$where_sql} AND d.current_status = 'completed'
-    GROUP BY d.id
-    ORDER BY {$sort_by} {$sort_order}
-    LIMIT {$records_per_page} OFFSET {$offset_completed}
-";
-$stmt_completed = $db->prepare($query_completed);
-$stmt_completed->execute($params);
-$documents_completed_raw = $stmt_completed->fetchAll(PDO::FETCH_ASSOC);
-
-// حساب العدد الإجمالي للمستندات غير المكتملة
-$total_incomplete_query = "
-    SELECT COUNT(DISTINCT d.id) as total
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    LEFT JOIN users u2 ON d.current_holder_id = u2.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
-    LEFT JOIN document_workflow dw ON d.id = dw.document_id
-    LEFT JOIN document_fields df ON d.id = df.document_id
-    {$where_sql} AND d.current_status != 'completed'
-";
-$total_incomplete_stmt = $db->prepare($total_incomplete_query);
-$total_incomplete_stmt->execute($params);
-$total_incomplete = $total_incomplete_stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
-$total_pages_incomplete = ceil($total_incomplete / $records_per_page);
-
-// حساب العدد الإجمالي للمستندات المكتملة
-$total_completed_query = "
-    SELECT COUNT(DISTINCT d.id) as total
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    LEFT JOIN users u2 ON d.current_holder_id = u2.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
-    LEFT JOIN document_workflow dw ON d.id = dw.document_id
-    LEFT JOIN document_fields df ON d.id = df.document_id
-    {$where_sql} AND d.current_status = 'completed'
-";
-$total_completed_stmt = $db->prepare($total_completed_query);
-$total_completed_stmt->execute($params);
-$total_completed = $total_completed_stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
-$total_pages_completed = ceil($total_completed / $records_per_page);
-
-// جلب حالة المستخدم لكل مستند (غير مكتمل)
-$documents_incomplete = [];
-foreach ($documents_incomplete_raw as $doc) {
-    $status_query = "SELECT status, action_required, notes FROM document_user_status WHERE document_id = :doc_id AND user_id = :user_id";
-    $status_stmt = $db->prepare($status_query);
-    $status_stmt->execute([':doc_id' => $doc['id'], ':user_id' => $user_id]);
-    $user_status = $status_stmt->fetch(PDO::FETCH_ASSOC);
-    $doc['user_status'] = $user_status['status'] ?? 'pending';
-    $doc['action_required'] = $user_status['action_required'] ?? null;
-    $doc['user_notes'] = $user_status['notes'] ?? null;
-    $documents_incomplete[] = $doc;
-}
-
-// جلب حالة المستخدم لكل مستند (مكتمل)
-$documents_completed = [];
-foreach ($documents_completed_raw as $doc) {
-    $status_query = "SELECT status, action_required, notes FROM document_user_status WHERE document_id = :doc_id AND user_id = :user_id";
-    $status_stmt = $db->prepare($status_query);
-    $status_stmt->execute([':doc_id' => $doc['id'], ':user_id' => $user_id]);
-    $user_status = $status_stmt->fetch(PDO::FETCH_ASSOC);
-    $doc['user_status'] = $user_status['status'] ?? 'pending';
-    $doc['action_required'] = $user_status['action_required'] ?? null;
-    $doc['user_notes'] = $user_status['notes'] ?? null;
-    $documents_completed[] = $doc;
-}
-
-function buildPaginationUrl($page_num, $page_param) {
+function buildPaginationUrl($page_num) {
     $params = $_GET;
-    $params[$page_param] = $page_num;
-    // إزالة الباراميتر الآخر للصفحة حتى لا يتداخل
-    if ($page_param == 'page_incomplete') {
-        unset($params['page_completed']);
-    } else {
-        unset($params['page_incomplete']);
-    }
+    $params['page'] = $page_num;
     return http_build_query($params);
 }
 ?>
@@ -879,6 +700,7 @@ function buildPaginationUrl($page_num, $page_param) {
                 </div>
             <?php else: ?>
                 <?php if ($viewMode == 'cards'): ?>
+                    <!-- عرض البطاقات (كما هو) -->
                     <div class="documents-grid">
                         <?php foreach ($documents as $index => $doc):
                             $is_creator = ($doc['created_by'] == $user_id);
@@ -1071,19 +893,18 @@ function buildPaginationUrl($page_num, $page_param) {
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <!-- جدول المستندات غير المكتملة -->
+                    <!-- جدول المستندات (موحد) -->
                     <div class="documents-table-container">
-                        <div class="documents-header" style="cursor: pointer;" onclick="toggleTable(this)">
+                        <div class="documents-header">
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: 20px; width: 100%;">
                                 <div style="flex-shrink: 0; min-width: 150px;">
                                     <h3 style="margin: 0; white-space: nowrap;">
-                                        <i class="fas fa-file-alt"></i> المستندات غير المكتملة
-                                        <i class="fas fa-chevron-down accordion-icon" style="margin-right: 8px; font-size: 0.9rem;"></i>
+                                        <i class="fas fa-file-alt"></i> جميع المستندات
                                     </h3>
                                 </div>
                                 <div class="table-search-container" style="flex: 1; max-width: 400px; min-width: 200px;">
                                     <div style="position: relative;">
-                                        <input type="text" id="instantTableSearch1" class="form-control search-on"
+                                        <input type="text" id="instantTableSearch" class="form-control search-on"
                                             placeholder="ابحث في الجدول عن أي شيء...">
                                         <div
                                             style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #95a5a6; pointer-events: none;">
@@ -1093,23 +914,23 @@ function buildPaginationUrl($page_num, $page_param) {
                                             <i class="fas fa-spinner"></i>
                                         </div>
                                     </div>
-                                    <div id="tableSearchInfo1"
+                                    <div id="tableSearchInfo"
                                         style="font-size: 0.75rem; color: #95a5a6; margin-top: 5px; text-align: center; display: none;">
-                                        <span id="searchResultsCount1">0</span> نتيجة
+                                        <span id="searchResultsCount">0</span> نتيجة
                                     </div>
                                 </div>
                                 <div style="flex-shrink: 0; min-width: 180px;">
                                     <div class="thired-text">
                                         <div><i class="fas fa-sync-alt"></i> آخر تحديث: <?php echo date('H:i:s'); ?></div>
                                         <div style="margin-top: 2px;"><i class="fas fa-layer-group"></i> إجمالي:
-                                            <?php echo $total_incomplete; ?> مستند</div>
+                                            <?php echo $total_documents; ?> مستند</div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div style="overflow-x: auto;">
-                            <table class="documents-table" id="documentsTableIncomplete">
+                            <table class="documents-table" id="documentsTable">
                                 <thead>
                                     <tr>
                                         <th>الرقم</th>
@@ -1122,7 +943,7 @@ function buildPaginationUrl($page_num, $page_param) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($documents_incomplete as $index => $doc):
+                                    <?php foreach ($documents as $index => $doc):
                                         $is_creator = ($doc['created_by'] == $user_id);
                                         $is_assigned = ($doc['current_holder_id'] == $user_id);
                                         $user_status = $doc['user_status'] ?? 'pending';
@@ -1161,7 +982,7 @@ function buildPaginationUrl($page_num, $page_param) {
                                                     <?php else: ?>
                                                         <div
                                                             style="font-weight: bold; font-size: 1.2rem; color: #95a5a6; font-style: italic;">
-                                                            <?php echo $index + 1 + $offset_incomplete; ?>
+                                                            <?php echo $index + 1 + $offset; ?>
                                                         </div>
                                                     <?php endif; ?>
                                                 </div>
@@ -1280,280 +1101,45 @@ function buildPaginationUrl($page_num, $page_param) {
                         </div>
                     </div>
 
-                    <!-- Pagination للمستندات غير المكتملة -->
-                    <?php if ($total_pages_incomplete > 1): ?>
+                    <!-- Pagination موحد -->
+                    <?php if ($total_pages > 1): ?>
                         <div class="pagination-container">
                             <div class="pagination-info">
-                                عرض <?php echo count($documents_incomplete); ?> من أصل <?php echo $total_incomplete; ?> مستند |
-                                الصفحة <?php echo $page_incomplete; ?> من <?php echo $total_pages_incomplete; ?>
+                                عرض <?php echo count($documents); ?> من أصل <?php echo $total_documents; ?> مستند |
+                                الصفحة <?php echo $page; ?> من <?php echo $total_pages; ?>
                             </div>
                             <ul class="pagination">
-                                <li class="page-item <?php echo $page_incomplete <= 1 ? 'disabled' : ''; ?>">
+                                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
                                     <a class="page-link"
-                                        href="?<?php echo buildPaginationUrl($page_incomplete - 1, 'page_incomplete'); ?>"
+                                        href="?<?php echo buildPaginationUrl($page - 1); ?>"
                                         aria-label="السابق"><i class="fas fa-chevron-right"></i></a>
                                 </li>
                                 <?php
-                                $start = max(1, $page_incomplete - 2);
-                                $end = min($total_pages_incomplete, $page_incomplete + 2);
+                                $start = max(1, $page - 2);
+                                $end = min($total_pages, $page + 2);
                                 if ($start > 1) {
-                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl(1, 'page_incomplete') . '">1</a></li>';
+                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl(1) . '">1</a></li>';
                                     if ($start > 2)
                                         echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
                                 }
                                 for ($i = $start; $i <= $end; $i++) {
-                                    $active = ($i == $page_incomplete) ? 'active' : '';
-                                    echo '<li class="page-item ' . $active . '"><a class="page-link" href="?' . buildPaginationUrl($i, 'page_incomplete') . '">' . $i . '</a></li>';
+                                    $active = ($i == $page) ? 'active' : '';
+                                    echo '<li class="page-item ' . $active . '"><a class="page-link" href="?' . buildPaginationUrl($i) . '">' . $i . '</a></li>';
                                 }
-                                if ($end < $total_pages_incomplete) {
-                                    if ($end < $total_pages_incomplete - 1)
+                                if ($end < $total_pages) {
+                                    if ($end < $total_pages - 1)
                                         echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
-                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl($total_pages_incomplete, 'page_incomplete') . '">' . $total_pages_incomplete . '</a></li>';
+                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl($total_pages) . '">' . $total_pages . '</a></li>';
                                 }
                                 ?>
-                                <li class="page-item <?php echo $page_incomplete >= $total_pages_incomplete ? 'disabled' : ''; ?>">
+                                <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
                                     <a class="page-link"
-                                        href="?<?php echo buildPaginationUrl($page_incomplete + 1, 'page_incomplete'); ?>"
+                                        href="?<?php echo buildPaginationUrl($page + 1); ?>"
                                         aria-label="التالي"><i class="fas fa-chevron-left"></i></a>
                                 </li>
                             </ul>
                         </div>
                     <?php endif; ?>
-
-                    <hr style="margin: 30px 0; border-top: 2px dashed #ccc;">
-
-                    <!-- جدول المستندات المكتملة -->
-                    <div class="documents-table-container">
-                        <div class="documents-header" style="cursor: pointer;" onclick="toggleTable(this)">
-                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: 20px; width: 100%;">
-                                <div style="flex-shrink: 0; min-width: 150px;">
-                                    <h3 style="margin: 0; white-space: nowrap;">
-                                        <i class="fas fa-check-circle" style="color: #27ae60;"></i> المستندات المكتملة
-                                        <i class="fas fa-chevron-down accordion-icon" style="margin-right: 8px; font-size: 0.9rem;"></i>
-                                    </h3>
-                                </div>
-                                <div class="table-search-container" style="flex: 1; max-width: 400px; min-width: 200px;">
-                                    <div style="position: relative;">
-                                        <input type="text" id="instantTableSearch2" class="form-control search-on"
-                                            placeholder="ابحث في الجدول عن أي شيء...">
-                                        <div
-                                            style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #95a5a6; pointer-events: none;">
-                                            <i class="fas fa-search"></i>
-                                        </div>
-                                        <div class="searching-indicator" style="display: none;">
-                                            <i class="fas fa-spinner"></i>
-                                        </div>
-                                    </div>
-                                    <div id="tableSearchInfo2"
-                                        style="font-size: 0.75rem; color: #95a5a6; margin-top: 5px; text-align: center; display: none;">
-                                        <span id="searchResultsCount2">0</span> نتيجة
-                                    </div>
-                                </div>
-                                <div style="flex-shrink: 0; min-width: 180px;">
-                                    <div class="thired-text">
-                                        <div><i class="fas fa-layer-group"></i> إجمالي: <?php echo $total_completed; ?> مستند
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="overflow-x: auto;">
-                            <table class="documents-table" id="documentsTableCompleted">
-                                <thead>
-                                    <tr>
-                                        <th>الرقم</th>
-                                        <th>المستند</th>
-                                        <th>المرسل</th>
-                                        <th>حالتي</th>
-                                        <th>الحالة العامة</th>
-                                        <th>الأولوية</th>
-                                        <th style="text-align: center;">الإجراءات</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($documents_completed as $index => $doc):
-                                        $is_creator = ($doc['created_by'] == $user_id);
-                                        $is_assigned = ($doc['current_holder_id'] == $user_id);
-                                        $user_status = $doc['user_status'] ?? 'pending';
-                                        $doc_type = ($doc['created_by'] == $user_id) ? 'my_documents' : 'assigned_to_me';
-                                        ?>
-                                        <tr class="document-row" data-searchable="<?php echo htmlspecialchars(json_encode([
-                                            'title' => $doc['title'],
-                                            'description' => $doc['description'] ?? '',
-                                            'creator_name' => $doc['creator_name'],
-                                            'department_name' => $doc['department_name'] ?? '',
-                                            'public_number' => $doc['public_number'] ?? '',
-                                            'private_number' => $doc['private_number'] ?? '',
-                                            'current_status' => $doc['current_status'],
-                                            'priority' => $doc['priority'],
-                                            'assigned_to_name' => $doc['assigned_to_name'] ?? '',
-                                            'created_at' => $doc['created_at']
-                                        ]), ENT_QUOTES, 'UTF-8'); ?>">
-                                            <td style="text-align: center; vertical-align: middle; padding: 10px 5px;">
-                                                <div
-                                                    style="display: flex; flex-direction: column; align-items: right; justify-content: center; min-height: 60px;">
-                                                    <?php if (!empty($doc['public_number']) || !empty($doc['private_number'])): ?>
-                                                        <?php if (!empty($doc['public_number'])): ?>
-                                                            <div
-                                                                style="font-weight: bold; font-size: 1.1rem; color: #164a40; margin-bottom: 3px; padding: 4px 8px; background: #d4edda; border-radius: 4px; border: 1px solid #c3e6cb; width: fit-content;">
-                                                                <i class="fas fa-building" style="margin-left: 5px; font-size: 0.9rem;"></i>
-                                                                <?php echo htmlspecialchars($doc['public_number']); ?>
-                                                            </div>
-                                                        <?php endif; ?>
-                                                        <?php if (!empty($doc['private_number'])): ?>
-                                                            <div
-                                                                style="font-size: 0.85rem; color: #6c757d; padding: 3px 6px; background: #f8f9fa; border-radius: 3px; border: 1px dashed #dee2e6; width: fit-content; margin-top: 2px;">
-                                                                <i class="fas fa-user" style="margin-left: 3px; font-size: 0.8rem;"></i>
-                                                                <?php echo htmlspecialchars($doc['private_number']); ?>
-                                                            </div>
-                                                        <?php endif; ?>
-                                                    <?php else: ?>
-                                                        <div
-                                                            style="font-weight: bold; font-size: 1.2rem; color: #95a5a6; font-style: italic;">
-                                                            <?php echo $index + 1 + $offset_completed; ?>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </td>
-                                            <td class="document-info-cell">
-                                                <a href="../documents/view_document.php?id=<?php echo $doc['id']; ?>"
-                                                    style="text-decoration: none;">
-                                                    <span
-                                                        class="document-title"><?php echo htmlspecialchars($doc['title']); ?></span>
-                                                    <?php if ($doc['description']): ?>
-                                                        <span class="document-description">
-                                                            <?php echo htmlspecialchars(mb_substr($doc['description'], 0, 80, 'UTF-8')); ?>
-                                                            <?php if (mb_strlen($doc['description'], 'UTF-8') > 80): ?>...<?php endif; ?>
-                                                        </span>
-                                                    <?php endif; ?>
-                                                    <span class="document-type <?php echo $doc_type; ?>">
-                                                        <i
-                                                            class="fas <?php echo $doc_type == 'my_documents' ? 'fa-edit' : 'fa-inbox'; ?>"></i>
-                                                        <?php echo $doc_type == 'my_documents' ? 'الصادر' : 'الوارد'; ?>
-                                                    </span>
-                                                </a>
-                                            </td>
-                                            <td class="sender-cell">
-                                                <?php echo htmlspecialchars($doc['creator_name']); ?>
-                                                <?php if ($is_creator): ?><span class="you-badge">أنت</span><?php endif; ?>
-                                                <span
-                                                    class="sender-date"><?php echo date('Y-m-d', strtotime($doc['created_at'])); ?></span>
-                                            </td>
-                                            <td>
-                                                <div class="status-container">
-                                                    <?php
-                                                    $status_labels = [
-                                                        'draft' => ['label' => 'مسودة', 'class' => 'draft'],
-                                                        'pending' => ['label' => 'انتظار', 'class' => 'pending'],
-                                                        'completion_required' => ['label' => 'استكمال', 'class' => 'completion_required'],
-                                                        'partially_signed' => ['label' => 'موقع جزئياً', 'class' => 'partially_signed'],
-                                                        'partially_completed' => ['label' => 'مكتمل جزئياً', 'class' => 'partially_completed'],
-                                                        'completed' => ['label' => 'مكتمل', 'class' => 'completed'],
-                                                        'responded' => ['label' => 'تم الرد', 'class' => 'completed'],
-                                                        'approved' => ['label' => 'موافق', 'class' => 'completed'],
-                                                        'rejected' => ['label' => 'مرفوض', 'class' => 'rejected']
-                                                    ];
-                                                    $status_info = $status_labels[$user_status] ?? ['label' => $user_status, 'class' => 'pending'];
-                                                    ?>
-                                                    <span class="status-badge status-<?php echo $status_info['class']; ?>">
-                                                        <?php echo $status_info['label']; ?>
-                                                    </span>
-                                                    <?php if ($is_assigned): ?>
-                                                        <span class="user-status assigned"><i class="fas fa-user-check"></i> معك
-                                                            حالياً</span>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div class="status-container">
-                                                    <?php
-                                                    $status_config = [
-                                                        'draft' => ['label' => 'مسودة', 'class' => 'draft'],
-                                                        'under_review' => ['label' => 'قيد المراجعة', 'class' => 'under_review'],
-                                                        'pending' => ['label' => 'قيد الانتظار', 'class' => 'pending'],
-                                                        'completed' => ['label' => 'مكتملة', 'class' => 'completed'],
-                                                        'rejected' => ['label' => 'مرفوض', 'class' => 'rejected'],
-                                                        'partially_signed' => ['label' => 'موقع جزئياً', 'class' => 'partially_signed'],
-                                                        'partially_completed' => ['label' => 'مكتمل جزئياً', 'class' => 'partially_completed'],
-                                                        'completion_required' => ['label' => 'مطلوب استكمال', 'class' => 'completion_required']
-                                                    ];
-                                                    $status_cfg = $status_config[$doc['current_status']] ?? ['label' => $doc['current_status'], 'class' => 'pending'];
-                                                    ?>
-                                                    <span class="status-badge status-<?php echo $status_cfg['class']; ?>">
-                                                        <?php echo $status_cfg['label']; ?>
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <?php
-                                                $priority_config = [
-                                                    'normal' => ['label' => 'عادي', 'class' => 'normal'],
-                                                    'high' => ['label' => 'عاجل', 'class' => 'high'],
-                                                    'urgent' => ['label' => 'سري', 'class' => 'urgent']
-                                                ];
-                                                $priority_cfg = $priority_config[$doc['priority']] ?? ['label' => $doc['priority'], 'class' => 'normal'];
-                                                ?>
-                                                <span class="priority-badge priority-<?php echo $priority_cfg['class']; ?>">
-                                                    <?php echo $priority_cfg['label']; ?>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <div class="action-buttons">
-                                                    <a href="../documents/view_document.php?id=<?php echo $doc['id']; ?>"
-                                                        class="employee-btn view" title="عرض المستند"><i class="fas fa-eye"></i></a>
-                                                    <button onclick="openTrackPopup(<?php echo $doc['id']; ?>)"
-                                                        class="employee-btn track" title="تتبع المسار"><i
-                                                            class="fas fa-project-diagram"></i></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Pagination للمستندات المكتملة -->
-                    <?php if ($total_pages_completed > 1): ?>
-                        <div class="pagination-container">
-                            <div class="pagination-info">
-                                عرض <?php echo count($documents_completed); ?> من أصل <?php echo $total_completed; ?> مستند | الصفحة
-                                <?php echo $page_completed; ?> من <?php echo $total_pages_completed; ?>
-                            </div>
-                            <ul class="pagination">
-                                <li class="page-item <?php echo $page_completed <= 1 ? 'disabled' : ''; ?>">
-                                    <a class="page-link"
-                                        href="?<?php echo buildPaginationUrl($page_completed - 1, 'page_completed'); ?>"
-                                        aria-label="السابق"><i class="fas fa-chevron-right"></i></a>
-                                </li>
-                                <?php
-                                $start = max(1, $page_completed - 2);
-                                $end = min($total_pages_completed, $page_completed + 2);
-                                if ($start > 1) {
-                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl(1, 'page_completed') . '">1</a></li>';
-                                    if ($start > 2)
-                                        echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
-                                }
-                                for ($i = $start; $i <= $end; $i++) {
-                                    $active = ($i == $page_completed) ? 'active' : '';
-                                    echo '<li class="page-item ' . $active . '"><a class="page-link" href="?' . buildPaginationUrl($i, 'page_completed') . '">' . $i . '</a></li>';
-                                }
-                                if ($end < $total_pages_completed) {
-                                    if ($end < $total_pages_completed - 1)
-                                        echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
-                                    echo '<li class="page-item"><a class="page-link" href="?' . buildPaginationUrl($total_pages_completed, 'page_completed') . '">' . $total_pages_completed . '</a></li>';
-                                }
-                                ?>
-                                <li class="page-item <?php echo $page_completed >= $total_pages_completed ? 'disabled' : ''; ?>">
-                                    <a class="page-link"
-                                        href="?<?php echo buildPaginationUrl($page_completed + 1, 'page_completed'); ?>"
-                                        aria-label="التالي"><i class="fas fa-chevron-left"></i></a>
-                                </li>
-                            </ul>
-                        </div>
-                    <?php endif; ?>
-
                 <?php endif; ?>
             <?php endif; ?>
         </div>
@@ -1589,7 +1175,7 @@ function buildPaginationUrl($page_num, $page_param) {
 
                             if ($supervisor_id) {
                                 $supervisor_info_query = "
-                                    SELECT u.id, u.full_name, r.role_name 
+                                    SELECT u.id, u.full_name, r.role_name ,u.title
                                     FROM users u 
                                     LEFT JOIN roles r ON u.role_id = r.id 
                                     WHERE u.id = :supervisor_id
@@ -1601,7 +1187,7 @@ function buildPaginationUrl($page_num, $page_param) {
                                 if ($supervisor): ?>
                                     <option value="<?php echo $supervisor['id']; ?>">
                                         <?php echo htmlspecialchars($supervisor['full_name']) ?>
-                                        (رئيس الدائرة)
+                                        (<?php echo htmlspecialchars($supervisor['title']); ?>)
                                     </option>
                                 <?php endif;
                             }
@@ -1645,7 +1231,7 @@ function buildPaginationUrl($page_num, $page_param) {
                     </div>
 
                     <div style="margin-bottom: 20px;" id="fieldsSection">
-                        <label class="form-label">الحقول المطلوبة</label>
+                
                         <div style="margin-bottom: 10px; color: #666; font-size: 0.9rem;">
                             <i class="fas fa-info-circle"></i> انقر على الأزرار لتحديد الحقول المطلوبة من
                             المستخدم
@@ -1653,38 +1239,13 @@ function buildPaginationUrl($page_num, $page_param) {
 
                         <div class="field-buttons-container"
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 15px;">
-                            <!--<button type="button" class="field-button" data-field="signature" data-selected="false">
-                                <i class="fas fa-signature"></i>
-                                <span>توقيع</span>
-                            </button>
-
-                            <button type="button" class="field-button" data-field="date" data-selected="false">
-                                <i class="fas fa-calendar-alt"></i>
-                                <span>تاريخ</span>
-                            </button>
-
-                            <button type="button" class="field-button" data-field="image" data-selected="false">
-                                <i class="fas fa-stamp"></i>
-                                <span>ختم</span>
-                            </button> -->
-
                             <button type="button" class="field-button" data-field="note" data-selected="true">
                                 <i class="fas fa-sticky-note"></i>
                                 <span>ملاحظة</span>
                             </button>
                         </div>
 
-                        <div
-                            style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
-                            <div id="selectedFieldsList" style="font-size: 0.9rem; color: #27ae60;">
-                                <i class="fas fa-check-circle"></i> الحقول المحددة: <span
-                                    id="selectedFieldsText">ملاحظة</span>
-                            </div>
-                            <button type="button" class="btnx btn-secondary" onclick="clearAllFields()"
-                                style="padding: 5px 10px; font-size: 0.8rem;">
-                                <i class="fas fa-trash-alt"></i> إلغاء الكل
-                            </button>
-                        </div>
+                       
                     </div>
 
                     <div style="margin-bottom: 20px;">
@@ -1698,7 +1259,7 @@ function buildPaginationUrl($page_num, $page_param) {
                             <i class="fas fa-times"></i> إلغاء
                         </button>
                         <button type="submit" class="btnx btn-success">
-                            <i class="fas fa-paper-plane"></i> إرسال للمستهدف
+                            <i class="fas fa-paper-plane"></i> إرسال
                         </button>
                     </div>
                 </form>
@@ -1721,9 +1282,12 @@ function buildPaginationUrl($page_num, $page_param) {
     <!-- تضمين ملف الجافاسكريبت الأساسي -->
     <script src="../assets/js/section_scr.js"></script>
 
-    <!-- دوال إضافية للأكورديون والبحث المحسن -->
+    <!-- دوال إضافية للبحث المحسن -->
     <script>
         const unreadCount = <?php echo (int) $unread_count; ?>;
+
+        // إلغاء أي تأثير لـ setFaviconWithBadge
+        window.setFaviconWithBadge = function() {};
 
         // دوال البحث الفوري المحسن
         function performInstantSearchForTable(searchTerm, tableId, infoId, resultsCountId) {
@@ -1791,53 +1355,17 @@ function buildPaginationUrl($page_num, $page_param) {
         }
 
         function initInstantSearch() {
-            // الجدول الأول
-            const searchInput1 = document.getElementById('instantTableSearch1');
-            if (searchInput1) {
+            // الجدول الموحد
+            const searchInput = document.getElementById('instantTableSearch');
+            if (searchInput) {
                 let timeout;
-                searchInput1.addEventListener('input', function(e) {
+                searchInput.addEventListener('input', function(e) {
                     clearTimeout(timeout);
                     timeout = setTimeout(() => {
-                        performInstantSearchForTable(e.target.value.trim(), 'documentsTableIncomplete', 'tableSearchInfo1', 'searchResultsCount1');
+                        performInstantSearchForTable(e.target.value.trim(), 'documentsTable', 'tableSearchInfo', 'searchResultsCount');
                     }, 300);
                 });
-                addResetButtonToSearch(searchInput1, 'documentsTableIncomplete', 'tableSearchInfo1', 'searchResultsCount1');
-            }
-
-            // الجدول الثاني
-            const searchInput2 = document.getElementById('instantTableSearch2');
-            if (searchInput2) {
-                let timeout;
-                searchInput2.addEventListener('input', function(e) {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(() => {
-                        performInstantSearchForTable(e.target.value.trim(), 'documentsTableCompleted', 'tableSearchInfo2', 'searchResultsCount2');
-                    }, 300);
-                });
-                addResetButtonToSearch(searchInput2, 'documentsTableCompleted', 'tableSearchInfo2', 'searchResultsCount2');
-            }
-        }
-
-        // دالة الأكورديون
-        function toggleTable(headerElement) {
-            const tableContainer = headerElement.closest('.documents-table-container');
-            if (!tableContainer) return;
-            const tbody = tableContainer.querySelector('tbody');
-            const pagination = tableContainer.nextElementSibling && tableContainer.nextElementSibling.classList.contains('pagination-container')
-                                ? tableContainer.nextElementSibling
-                                : null;
-            const icon = headerElement.querySelector('.accordion-icon');
-
-            if (tbody.style.display === 'none') {
-                tbody.style.display = '';
-                if (pagination) pagination.style.display = '';
-                icon.classList.remove('fa-chevron-up');
-                icon.classList.add('fa-chevron-down');
-            } else {
-                tbody.style.display = 'none';
-                if (pagination) pagination.style.display = 'none';
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-up');
+                addResetButtonToSearch(searchInput, 'documentsTable', 'tableSearchInfo', 'searchResultsCount');
             }
         }
 
@@ -1867,13 +1395,13 @@ function buildPaginationUrl($page_num, $page_param) {
             // تهيئة البحث الفوري
             initInstantSearch();
 
-            // عرض الفافيكون مع عدد الإشعارات
-            if (typeof unreadCount !== 'undefined') {
-                setFaviconWithBadge(unreadCount);
-            } else {
-                const count = document.querySelector('meta[name="unread-count"]')?.content;
-                if (count) setFaviconWithBadge(parseInt(count));
-            }
+            // تعطيل عرض عدد الإشعارات على الأيقونة - إزالة استدعاء setFaviconWithBadge
+            // if (typeof unreadCount !== 'undefined') {
+            //     setFaviconWithBadge(unreadCount);
+            // } else {
+            //     const count = document.querySelector('meta[name="unread-count"]')?.content;
+            //     if (count) setFaviconWithBadge(parseInt(count));
+            // }
 
             // كشف الجهاز
             if (window.innerWidth <= 768) {

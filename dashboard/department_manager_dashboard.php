@@ -1240,7 +1240,7 @@ text-decoration: none;">
 
                                     if ($supervisor_id) {
                                         $supervisor_info_query = "
-            SELECT u.id, u.full_name, r.role_name 
+            SELECT u.id, u.full_name, r.role_name ,u.title
             FROM users u 
             LEFT JOIN roles r ON u.role_id = r.id 
             WHERE u.id = :supervisor_id
@@ -1252,7 +1252,8 @@ text-decoration: none;">
                                         if ($supervisor): ?>
                                             <option value="<?php echo $supervisor['id']; ?>">
                                                 <?php echo htmlspecialchars($supervisor['full_name']) ?>
-                                                (الديوان العام)
+                                                (<?php echo htmlspecialchars($supervisor['title']); ?>)
+                                               
                                             </option>
                                         <?php endif;
                                     }
@@ -1296,7 +1297,7 @@ text-decoration: none;">
                             </div>
 
                             <div style="margin-bottom: 20px;" id="fieldsSection">
-                                <label class="form-label">الحقول المطلوبة</label>
+                               
                                 <div style="margin-bottom: 10px; color: #666; font-size: 0.9rem;">
                                     <i class="fas fa-info-circle"></i> انقر على الأزرار لتحديد الحقول المطلوبة من
                                     المستخدم
@@ -1332,17 +1333,7 @@ text-decoration: none;">
                         </button> -->
                                 </div>
 
-                                <div
-                                    style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
-                                    <div id="selectedFieldsList" style="font-size: 0.9rem; color: #27ae60;">
-                                        <i class="fas fa-check-circle"></i> الحقول المحددة: <span
-                                            id="selectedFieldsText">ملاحظة</span>
-                                    </div>
-                                    <button type="button" class="btnx btn-secondary" onclick="clearAllFields()"
-                                        style="padding: 5px 10px; font-size: 0.8rem;">
-                                        <i class="fas fa-trash-alt"></i> إلغاء الكل
-                                    </button>
-                                </div>
+                          
                             </div>
 
                             <div style="margin-bottom: 20px;">

@@ -36,7 +36,7 @@ if ($page < 1)
     $page = 1;
 $offset = ($page - 1) * $records_per_page;
 
-// معالجة تصفية الأهمية من الأزرار الدائرية
+// معالجة تصفية الأهمية من الأزرار الاهمية
 $importance = $_GET['importance'] ?? '';
 if (!empty($importance)) {
     if ($importance === 'سري') {
@@ -655,7 +655,7 @@ text-decoration: none;">
                             $is_assigned = ($doc['current_holder_id'] == $user_id);
                             $user_status = $doc['user_status'] ?? 'pending';
                             $doc_type = ($doc['created_by'] == $user_id) ? 'my_documents' : 'assigned_to_me';
-                            ?>
+                        ?>
                             <div class="document-card">
                                 <!-- رقعة نوع المستند -->
                                 <div class="type-ribbon <?php echo $doc_type; ?>">
@@ -924,19 +924,19 @@ text-decoration: none;">
                                         $is_assigned = ($doc['current_holder_id'] == $user_id);
                                         $user_status = $doc['user_status'] ?? 'pending';
                                         $doc_type = ($doc['created_by'] == $user_id) ? 'my_documents' : 'assigned_to_me';
-                                        ?>
+                                    ?>
                                         <tr class="document-row" data-searchable="<?php echo htmlspecialchars(json_encode([
-                                            'title' => $doc['title'],
-                                            'description' => $doc['description'] ?? '',
-                                            'creator_name' => $doc['creator_name'],
-                                            'department_name' => $doc['department_name'] ?? '',
-                                            'public_number' => $doc['public_number'] ?? '',
-                                            'private_number' => $doc['private_number'] ?? '',
-                                            'current_status' => $doc['current_status'],
-                                            'priority' => $doc['priority'],
-                                            'assigned_to_name' => $doc['assigned_to_name'] ?? '',
-                                            'created_at' => $doc['created_at']
-                                        ]), ENT_QUOTES, 'UTF-8'); ?>">
+                                                                                        'title' => $doc['title'],
+                                                                                        'description' => $doc['description'] ?? '',
+                                                                                        'creator_name' => $doc['creator_name'],
+                                                                                        'department_name' => $doc['department_name'] ?? '',
+                                                                                        'public_number' => $doc['public_number'] ?? '',
+                                                                                        'private_number' => $doc['private_number'] ?? '',
+                                                                                        'current_status' => $doc['current_status'],
+                                                                                        'priority' => $doc['priority'],
+                                                                                        'assigned_to_name' => $doc['assigned_to_name'] ?? '',
+                                                                                        'created_at' => $doc['created_at']
+                                                                                    ]), ENT_QUOTES, 'UTF-8'); ?>">
                                             <td style="text-align: center; vertical-align: middle; padding: 10px 5px;">
                                                 <div
                                                     style="display: flex; flex-direction: column; align-items: right; justify-content: center; min-height: 60px;">
@@ -1068,14 +1068,14 @@ text-decoration: none;">
 
                                             <td>
                                                 <div class="action-buttons">
-                                                    <?php if ($is_assigned ): ?>
+                                                    <?php if ($is_assigned): ?>
                                                         <a href="../documents/view_document.php?id=<?php echo $doc['id']; ?>"
                                                             class="employee-btn view" title="عرض المستند">
                                                             <i class="fas fa-eye"></i>
                                                         </a>
                                                     <?php endif; ?>
 
-                                                  <?php if ($is_assigned && $doc['current_status'] != 'completed' ): ?>
+                                                    <?php if ($is_assigned && $doc['current_status'] != 'completed'): ?>
                                                         <button onclick="showAddWorkflowStepModal(<?php echo $doc['id']; ?>)"
                                                             class="employee-btn forward" title="معالجة">
                                                             <i class="fas fa-forward"></i>
@@ -1086,11 +1086,11 @@ text-decoration: none;">
                                                         class="employee-btn track" title="تتبع مسار المستند">
                                                         <i class="fas fa-project-diagram"></i>
                                                     </button>
-                                                   <?php if ($is_creator && ($doc['current_status'] == 'draft' || $doc['current_status'] == 'completed')): ?>
-    <button onclick="deleteDocument(<?php echo $doc['id']; ?>)" class="card-btn" style="background: #e74c3c; color: white;" title="حذف المستند">
-        <i class="fas fa-trash"></i>
-    </button>
-<?php endif; ?>
+                                                    <?php if ($is_creator && ($doc['current_status'] == 'draft' || $doc['current_status'] == 'completed')): ?>
+                                                        <button onclick="deleteDocument(<?php echo $doc['id']; ?>)" class="card-btn" style="background: #e74c3c; color: white;" title="حذف المستند">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    <?php endif; ?>
                                                 </div>
                                             </td>
                                         </tr>
@@ -1115,7 +1115,7 @@ text-decoration: none;">
                                 $params['page'] = $page_num;
                                 return http_build_query($params);
                             }
-                            ?>
+                        ?>
                             <ul class="pagination">
                                 <!-- زر الصفحة السابقة -->
                                 <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
@@ -1186,6 +1186,21 @@ text-decoration: none;">
                                 <label class="form-label">
                                     المستخدم المستهدف <span style="color: #e74c3c;">*</span>
                                 </label>
+                                <?php
+                                // مصفوفة ترجمة الأدوار
+                                $role_translations = [
+                                    'admin' => 'مدير النظام',
+                                    'employee' => 'موظفين',
+                                    'board' => 'ديوان عام',
+                                    'section_manager' => 'مدراء الأقسام',
+                                    'department_manager' => 'مدراء الدوائر',
+                                    'private_board' => 'دواوين الأقسام',
+                                    'sub_board' => 'دواوين العامة',
+                                    'office_manager' => 'مدراء المكاتب',
+                                    'deputy_ceo' => 'نائب المدير',
+                                    'ceo' => 'المدير التنفيذي',
+                                ];
+                                ?>
                                 <select name="assigned_to" class="form-control" required id="assignedToSelect">
                                     <option value="">اختر المستخدم</option>
                                     <?php
@@ -1196,7 +1211,7 @@ text-decoration: none;">
                                     $supervisor_id = $supervisor_stmt->fetchColumn();
 
                                     if ($supervisor_id) {
-                                        $supervisor_info_query = "SELECT u.id, u.full_name, r.role_name 
+                                        $supervisor_info_query = "SELECT u.id, u.full_name, r.role_name, u.title
                                         FROM users u 
                                         JOIN roles r ON u.role_id = r.id 
                                         WHERE u.id = :supervisor_id";
@@ -1206,11 +1221,11 @@ text-decoration: none;">
 
                                         if ($supervisor): ?>
                                             <option value="<?php echo $supervisor['id']; ?>">
-                                              <!--  <?php echo htmlspecialchars($supervisor['full_name']) . ' - ' . htmlspecialchars($supervisor['role_name']); ?> -->
-                                                 <?php echo htmlspecialchars($supervisor['full_name']) ?>
-                                                (رئيس القسم)
+                                                <!--  <?php echo htmlspecialchars($supervisor['full_name']) . ' - ' . htmlspecialchars($supervisor['role_name']); ?> -->
+                                                <?php echo htmlspecialchars($supervisor['full_name']);
+                                                 echo ' ( ' . htmlspecialchars($supervisor['title']) . ' )';?>
                                             </option>
-                                        <?php endif;
+                                    <?php endif;
                                     } ?>
                                 </select>
                             </div>
@@ -1226,7 +1241,7 @@ text-decoration: none;">
                             </div>
 
                             <div style="margin-bottom: 20px;" id="fieldsSection">
-                                <label class="form-label">الحقول المطلوبة</label>
+                             
                                 <div style="margin-bottom: 10px; color: #666; font-size: 0.9rem;">
                                     <i class="fas fa-info-circle"></i> انقر على الأزرار لتحديد الحقول المطلوبة من
                                     المستخدم
@@ -1234,7 +1249,7 @@ text-decoration: none;">
 
                                 <div class="field-buttons-container"
                                     style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 15px;">
-                                    
+
                                     <!--<button type="button" class="field-button" data-field="signature"
                                         data-selected="false">
                                         <i class="fas fa-signature"></i>
@@ -1262,17 +1277,6 @@ text-decoration: none;">
                         </button> -->
                                 </div>
 
-                                <div
-                                    style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
-                                    <div id="selectedFieldsList" style="font-size: 0.9rem; color: #27ae60;">
-                                        <i class="fas fa-check-circle"></i> الحقول المحددة: <span
-                                            id="selectedFieldsText">ملاحظة</span>
-                                    </div>
-                                    <button type="button" class="btnx btn-secondary" onclick="clearAllFields()"
-                                        style="padding: 5px 10px; font-size: 0.8rem;">
-                                        <i class="fas fa-trash-alt"></i> إلغاء الكل
-                                    </button>
-                                </div>
                             </div>
 
                             <div style="margin-bottom: 20px;">
@@ -1286,7 +1290,7 @@ text-decoration: none;">
                                     <i class="fas fa-times"></i> إلغاء
                                 </button>
                                 <button type="submit" class="btnx btn-success">
-                                    <i class="fas fa-paper-plane"></i> إرسال للمستهدف
+                                    <i class="fas fa-paper-plane"></i> إرسال
                                 </button>
                             </div>
                         </form>

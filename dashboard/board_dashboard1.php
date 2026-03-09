@@ -1,5 +1,4 @@
 <?php
-
 /**
  * لوحة تحكم الديوان (board) - نظام التوقيع الإلكتروني
  * النسخة المعدلة: إظهار جميع المستندات وتعديل نظام الأرشفة
@@ -10,17 +9,13 @@ require_once '../includes/config.php';
 require_once '../includes/database.php';
 $pageTitle = 'لوحة التحكم';
 // التحقق من أن المستخدم مسجل دخول وله دور board
-if (!isset($_SESSION['user_id']) || $_SESSION['role_name'] !== 'private_board') {
+if (!isset($_SESSION['user_id']) || $_SESSION['role_name'] !== 'board') {
     header("Location: ../login.php");
     exit();
 }
 
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
-
 $db = getDB();
-$_SESSION['role'] = 'private_board';
+$_SESSION['role'] = 'board';
 $user_id = $_SESSION['user_id'];
 $site = $_SESSION['site_name'] ?? null;
 
@@ -211,33 +206,16 @@ foreach ($importance_stats as $stat) {
     }
 }
 
-// جلب قسم المستخدم الحالي
-$user_department_id = null;
-$dept_stmt = $db->prepare("SELECT department_id FROM users WHERE id = ?");
-$dept_stmt->execute([$user_id]);
-$user_dept = $dept_stmt->fetch(PDO::FETCH_ASSOC);
-$user_department_id = $user_dept['department_id'] ?? null;
-
 // جلب جميع الموظفين في النظام
 $all_users_query = $db->prepare("
-    SELECT u.id, u.full_name, u.email, r.role_name, d.name as department_name,u.title
+    SELECT u.id, u.full_name, u.email, r.role_name, d.name as department_name
     FROM users u
     JOIN roles r ON u.role_id = r.id
     LEFT JOIN departments d ON u.department_id = d.id
-    WHERE u.is_active = 1 
-        AND u.id != :user_id
-        AND (
-            (r.role_name IN ('employee', 'section_manager', 'department_manager', 'private_board') AND u.department_id = :dept_id)
-            OR r.role_name IN ('sub_board')
-        )
+    WHERE u.is_active = 1 AND u.id != :user_id
     ORDER BY r.role_name, u.full_name
 ");
-$all_users_query->execute([
-    ':user_id' => $user_id,
-    ':dept_id' => $user_department_id
-]);
-
-
+$all_users_query->execute([':user_id' => $user_id]);
 $all_users = $all_users_query->fetchAll(PDO::FETCH_ASSOC);
 
 // جلب المستندات مع اسم المستخدم المستهدف والأرقام
@@ -409,9 +387,6 @@ foreach ($archive_folders as $folder) {
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="../assets/css/dashboard.css">
-    <script>
-        var csrfToken = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
-    </script>
 
 </head>
 
@@ -437,7 +412,7 @@ foreach ($archive_folders as $folder) {
 
                     <!-- زر إضافة مستند -->
                     <div class="circle-filter-container">
-                        <a href="../documents/document_upload.php?for=pboard&return_to=pboard_dashboard" target="_self"
+                        <a href="../documents/document_upload.php?for=board&return_to=board_dashboard" target="_self"
                             class="circle-filter-btn add" style="
 text-decoration: none;">
                             <i class="fas fa-plus"></i>
@@ -738,7 +713,7 @@ text-decoration: none;">
                     <i class="fas fa-file-alt"></i>
                     <h4>لا توجد مستندات</h4>
                     <p>ابدأ بإنشاء مستند جديد أو انتظر حتى يوجه لك المستخدمون مستندات</p>
-                    <a href="../documents/document_upload.php?for=pboard&return_to=pboard_dashboard" class="btn"
+                    <a href="../documents/document_upload.php?for=board&return_to=board_dashboard" class="btn"
                         style="background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none;">
                         <i class="fas fa-plus"></i> إنشاء مستند جديد
                     </a>
@@ -753,7 +728,7 @@ text-decoration: none;">
                             $is_assigned = ($doc['current_holder_id'] == $user_id);
                             $user_status = $doc['user_status'] ?? 'pending';
                             $doc_type = ($doc['created_by'] == $user_id) ? 'صادر' : 'وارد';
-                        ?>
+                            ?>
                             <div class="document-card">
                                 <!-- رقعة نوع المستند -->
                                 <div class="type-ribbon <?php echo $doc_type == 'صادر' ? 'outgoing' : 'incoming'; ?>">
@@ -1007,7 +982,7 @@ text-decoration: none;">
                                     <tr>
                                         <th>الرقم</th>
                                         <th>المستند</th>
-                                        <!--    <th>القسم</th> -->
+                                       <!-- <th>القسم</th> -->
                                         <th>المرسل</th>
                                         <th>حالتي</th>
                                         <th>الحالة</th>
@@ -1021,19 +996,19 @@ text-decoration: none;">
                                         $is_assigned = ($doc['current_holder_id'] == $user_id);
                                         $user_status = $doc['user_status'] ?? 'pending';
                                         $doc_type = ($doc['created_by'] == $user_id) ? 'صادر' : 'وارد';
-                                    ?>
+                                        ?>
                                         <tr class="document-row" data-searchable="<?php echo htmlspecialchars(json_encode([
-                                                                                        'title' => $doc['title'],
-                                                                                        'description' => $doc['description'] ?? '',
-                                                                                        'creator_name' => $doc['creator_name'],
-                                                                                        'job_title' => $doc['job_title'] ?? '',
-                                                                                        'public_number' => $doc['public_number'] ?? '',
-                                                                                        'private_number' => $doc['private_number'] ?? '',
-                                                                                        'current_status' => $doc['current_status'],
-                                                                                        'priority' => $doc['priority'],
-                                                                                        'assigned_to_name' => $doc['assigned_to_name'] ?? '',
-                                                                                        'created_at' => $doc['created_at']
-                                                                                    ]), ENT_QUOTES, 'UTF-8'); ?>">
+                                            'title' => $doc['title'],
+                                            'description' => $doc['description'] ?? '',
+                                            'creator_name' => $doc['creator_name'],
+                                            'job_title' => $doc['job_title'] ?? '',
+                                            'public_number' => $doc['public_number'] ?? '',
+                                            'private_number' => $doc['private_number'] ?? '',
+                                            'current_status' => $doc['current_status'],
+                                            'priority' => $doc['priority'],
+                                            'assigned_to_name' => $doc['assigned_to_name'] ?? '',
+                                            'created_at' => $doc['created_at']
+                                        ]), ENT_QUOTES, 'UTF-8'); ?>">
                                             <td style="text-align: center; vertical-align: middle; padding: 10px 5px;">
                                                 <div
                                                     style="display: flex; flex-direction: column; align-items: right; justify-content: center; min-height: 60px;">
@@ -1083,7 +1058,7 @@ text-decoration: none;">
                                                 </a>
                                             </td>
 
-                                            <!-- <td class="department-cell">
+                                          <!--  <td class="department-cell">
                                                 <?php echo htmlspecialchars($doc['creator_site'] ?: 'غير معين'); ?>
                                                 <div class="assigned-to-info">
                                                     <strong><?php echo htmlspecialchars($doc['job_title'] ?: 'غير معين'); ?></strong>
@@ -1190,6 +1165,12 @@ text-decoration: none;">
                                                         <i class="fas fa-project-diagram"></i>
                                                     </button>
 
+                                                    <button onclick="deleteDocument(<?php echo $doc['id']; ?>)" class="employee-btn"
+                                                        style="background: #e74c3c; color: white;" title="حذف">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+
+
                                                     <button
                                                         onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>')"
                                                         class="employee-btn"
@@ -1197,13 +1178,6 @@ text-decoration: none;">
                                                         title="أرشفة المستند">
                                                         <i class="fas fa-archive"></i>
                                                     </button>
-
-                                                    <button onclick="deleteDocument(<?php echo $doc['id']; ?>)" class="employee-btn"
-                                                        style="background: #e74c3c; color: white;" title="حذف">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-
-
 
                                                 </div>
                                             </td>
@@ -1228,7 +1202,7 @@ text-decoration: none;">
                                     $params['page'] = $page_num;
                                     return http_build_query($params);
                                 }
-                            ?>
+                                ?>
                                 <ul class="pagination">
                                     <!-- زر الصفحة السابقة -->
                                     <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
@@ -1287,7 +1261,7 @@ text-decoration: none;">
             <div id="workflowStepModal" class="modal-overlay" style="display:none;">
                 <div class="modal-content" style="max-width: 500px;">
                     <div class="modal-header">
-                        <h3><i class="fas fa-user-plus"></i>إرسال للمعالجة</h3>
+                        <h3><i class="fas fa-user-plus"></i> إستكمال / تعديل أهمية</h3>
                         <button type="button" onclick="closeWorkflowStepModal()"
                             style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">
                             &times;
@@ -1298,6 +1272,7 @@ text-decoration: none;">
                             <input type="hidden" name="document_id" id="modalDocumentId">
                             <input type="hidden" name="update_priority" value="1"> <!-- إشارة لتحديث الأولوية -->
 
+                            <!-- قسم تعديل أهمية المستند -->
                             <div style="margin-bottom: 20px;" id="prioritySection">
                                 <label class="form-label">
                                     <i class="fas fa-exclamation-circle"></i> تعديل أهمية المستند (اختياري)
@@ -1313,43 +1288,24 @@ text-decoration: none;">
                                 <label class="form-label">
                                     المستخدم المستهدف <span style="color: #e74c3c;">*</span>
                                 </label>
-                                <?php
-                                // مصفوفة ترجمة الأدوار
-                                $role_translations = [
-                                    'admin' => 'مدير النظام',
-                                    'employee' => 'موظفين',
-                                    'board' => 'ديوان عام',
-                                    'section_manager' => 'مدراء الأقسام',
-                                    'department_manager' => 'مدراء الدوائر',
-                                    'private_board' => 'دواوين الأقسام',
-                                    'sub_board' => 'دواوين العامة',
-                                    'office_manager' => 'مدراء المكاتب',
-                                    'deputy_ceo' => 'نائب المدير',
-                                    'ceo' => 'المدير التنفيذي',
-
-                                ];
-                                ?>
-
                                 <select name="assigned_to" class="form-control" required id="assignedToSelect">
                                     <option value="">اختر المستخدم</option>
+                                    <!-- جميع المستخدمين في النظام -->
                                     <?php
                                     $current_role = '';
                                     foreach ($all_users as $user):
-                                        // ترجمة اسم الدور
-                                        $translated_role = $role_translations[$user['role_name']] ?? $user['role_name'];
-
-                                        if ($translated_role != $current_role):
+                                        if ($user['role_name'] != $current_role):
                                             if ($current_role != '')
                                                 echo '</optgroup>';
-                                            echo '<optgroup label="' . htmlspecialchars($translated_role) . '">';
-                                            $current_role = $translated_role;
+                                            echo '<optgroup label="' . htmlspecialchars($user['role_name']) . '">';
+                                            $current_role = $user['role_name'];
                                         endif;
-                                    ?>
+                                        ?>
                                         <option value="<?php echo $user['id']; ?>">
                                             <?php
                                             echo htmlspecialchars($user['full_name']);
                                             if ($user['department_name']):
-                                                echo ' ( ' . htmlspecialchars($user['title']) . ' )';
+                                                echo ' - ' . htmlspecialchars($user['department_name']);
                                             endif;
                                             ?>
                                         </option>
@@ -1413,6 +1369,29 @@ text-decoration: none;">
                     </div>
                 </div>
             </div>
+
+            <!-- مودال تأكيد الأرشفة -->
+<div id="archiveConfirmModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">
+            <h3><i class="fas fa-archive"></i> تأكيد الأرشفة</h3>
+            <button type="button" onclick="closeArchiveConfirmModal()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 25px; text-align: center;">
+            <i class="fas fa-question-circle" style="font-size: 4rem; color: #9b59b6; margin-bottom: 15px;"></i>
+            <p style="font-size: 1.1rem; margin-bottom: 25px; color: #34495e;">هل أنت متأكد من أرشفة هذا المستند؟</p>
+            <p style="font-size: 0.9rem; color: #7f8c8d; margin-bottom: 20px;" id="archiveDocumentTitle"></p>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button onclick="proceedArchive()" class="btnx" style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <i class="fas fa-check"></i> تأكيد الأرشفة
+                </button>
+                <button onclick="closeArchiveConfirmModal()" class="btnx btn-secondary" style="background: #95a5a6; color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <i class="fas fa-times"></i> إلغاء
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
         </div>
     </div>
 

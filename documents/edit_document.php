@@ -1520,6 +1520,7 @@ $all_users_json = json_encode($all_users, JSON_UNESCAPED_UNICODE);
             `;
 
             fieldElement.addEventListener('click', function(e) {
+                if (fieldElement.dataset.dragging === 'true') return;
                 if (!e.target.closest('.delete-field-btn') && !e.target.closest('.control-btn')) {
                     const clickedField = newFields.find(f => f.id === field.id);
                     if (clickedField) {
@@ -1649,6 +1650,7 @@ $all_users_json = json_encode($all_users, JSON_UNESCAPED_UNICODE);
                     initialTop = rect.top - pageRect.top;
 
                     element.style.opacity = '0.7';
+                    element.dataset.dragging = 'true'; 
 
                     document.addEventListener('mousemove', onMouseMove);
                     document.addEventListener('mouseup', onMouseUp);

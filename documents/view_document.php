@@ -82,7 +82,9 @@ try {
             break;
         case 'ceo':
         case 'board':
-            case'private_board':
+        case 'private_board':
+        case 'sub_board':
+        case 'office_manager':
         case 'department_manager':
         case 'section_manager':
             $can_view = true;
@@ -159,7 +161,6 @@ try {
     ");
     $stmt->execute([$document_id]);
     $attachments = $stmt->fetchAll();
-
 } catch (PDOException $e) {
     error_log("خطأ في جلب البيانات: " . $e->getMessage());
     $attachments = [];
@@ -218,7 +219,7 @@ function formatFileSize($bytes)
     <title>عرض المستند - <?= htmlspecialchars($document['title']) ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/print.css">
-        <style>
+    <style>
         /* المتغيرات كما هي */
         :root {
             --primary-color: #2b4438;
@@ -247,8 +248,10 @@ function formatFileSize($bytes)
                     rgba(140, 119, 79, 1) 50%,
                     rgba(140, 119, 79, 1) 100%);
             position: relative;
-            overflow-x: hidden; /* منع التمرير الأفقي */
-            padding: 1rem; /* مسافة حول البطاقة على الشاشات الصغيرة */
+            overflow-x: hidden;
+            /* منع التمرير الأفقي */
+            padding: 1rem;
+            /* مسافة حول البطاقة على الشاشات الصغيرة */
         }
 
         /* خلفية متحركة (بدون تعديل) */
@@ -272,9 +275,17 @@ function formatFileSize($bytes)
         }
 
         @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
         }
 
         .floating-element {
@@ -309,28 +320,44 @@ function formatFileSize($bytes)
         }
 
         @keyframes float {
-            0% { transform: translate(0, 0) rotate(0deg); }
-            33% { transform: translate(30px, -50px) rotate(120deg); }
-            66% { transform: translate(-20px, 20px) rotate(240deg); }
-            100% { transform: translate(0, 0) rotate(360deg); }
+            0% {
+                transform: translate(0, 0) rotate(0deg);
+            }
+
+            33% {
+                transform: translate(30px, -50px) rotate(120deg);
+            }
+
+            66% {
+                transform: translate(-20px, 20px) rotate(240deg);
+            }
+
+            100% {
+                transform: translate(0, 0) rotate(360deg);
+            }
         }
 
         /* حاوية البطاقة - أصبحت مرنة */
         .card-container {
             width: 100%;
-            max-width: 450px; /* حد أقصى على الشاشات الكبيرة */
-            height: auto; /* ارتفاع ديناميكي */
-            min-height: 500px; /* حد أدنى للارتفاع */
+            max-width: 450px;
+            /* حد أقصى على الشاشات الكبيرة */
+            height: auto;
+            /* ارتفاع ديناميكي */
+            min-height: 500px;
+            /* حد أدنى للارتفاع */
             perspective: 2500px;
             z-index: 10;
-            margin: 0 auto; /* توسيط */
+            margin: 0 auto;
+            /* توسيط */
         }
 
         .flip-card {
             position: relative;
             width: 100%;
             height: 100%;
-            min-height: 500px; /* متناسق مع الحاوية */
+            min-height: 500px;
+            /* متناسق مع الحاوية */
             transition: transform 0.8s cubic-bezier(0.4, 0.2, 0.2, 1);
             transform-style: preserve-3d;
             border-radius: 30px;
@@ -376,13 +403,15 @@ function formatFileSize($bytes)
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            padding: clamp(15px, 5vw, 30px); /* padding متجاوب */
+            padding: clamp(15px, 5vw, 30px);
+            /* padding متجاوب */
             backdrop-filter: blur(10px);
         }
 
         .front {
             background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            border: 5px solid var(--accent-color); /* تقليل سمك الإطار قليلاً للموبايل */
+            border: 5px solid var(--accent-color);
+            /* تقليل سمك الإطار قليلاً للموبايل */
         }
 
         .back {
@@ -407,13 +436,15 @@ function formatFileSize($bytes)
         }
 
         .logo-img {
-            width: min(150px, 40vw); /* على الشاشات الصغيرة لا يتجاوز 40% من عرض الشاشة */
+            width: min(150px, 40vw);
+            /* على الشاشات الصغيرة لا يتجاوز 40% من عرض الشاشة */
             height: auto;
             filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.1));
         }
 
         .company-name {
-            font-size: clamp(16px, 5vw, 22px); /* خط متجاوب */
+            font-size: clamp(16px, 5vw, 22px);
+            /* خط متجاوب */
             font-weight: 700;
             color: #feffff;
             margin-bottom: 0.2rem;
@@ -428,7 +459,8 @@ function formatFileSize($bytes)
         }
 
         .qr-code {
-            width: min(200px, 60vw); /* QR code يتناسب */
+            width: min(200px, 60vw);
+            /* QR code يتناسب */
             height: min(200px, 60vw);
             background: #ffffff;
             border-radius: 20px;
@@ -499,7 +531,8 @@ function formatFileSize($bytes)
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
-            right: 15px; /* تقليل المسافة للموبايل */
+            right: 15px;
+            /* تقليل المسافة للموبايل */
             color: rgba(255, 255, 255, 0.8);
             z-index: 2;
             transition: color 0.3s;
@@ -507,7 +540,8 @@ function formatFileSize($bytes)
 
         .form-control {
             width: 100%;
-            padding: 14px 45px 14px 45px; /* متناسق مع الأيقونات */
+            padding: 14px 45px 14px 45px;
+            /* متناسق مع الأيقونات */
             font-size: clamp(14px, 4vw, 16px);
             background: transparent;
             border: none;
@@ -532,7 +566,8 @@ function formatFileSize($bytes)
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
-            left: 15px; /* تقليل المسافة */
+            left: 15px;
+            /* تقليل المسافة */
             color: rgba(255, 255, 255, 0.8);
             cursor: pointer;
             z-index: 2;
@@ -575,7 +610,8 @@ function formatFileSize($bytes)
             gap: 0.5rem;
             padding: 0.5rem 1rem;
             border-radius: 50px;
-            cursor: pointer; /* للإشارة إلى أنه قابل للنقر */
+            cursor: pointer;
+            /* للإشارة إلى أنه قابل للنقر */
             transition: background-color 0.3s;
         }
 
@@ -611,29 +647,38 @@ function formatFileSize($bytes)
             body {
                 padding: 0.5rem;
             }
+
             .card-container {
                 max-width: 100%;
                 min-height: auto;
             }
+
             .flip-card {
                 min-height: 450px;
             }
-            .front, .back {
+
+            .front,
+            .back {
                 padding: 15px 10px;
             }
+
             .qr-code {
                 width: 150px;
                 height: 150px;
             }
+
             .logo-img {
                 width: 100px;
             }
+
             .form-control {
                 padding: 12px 35px;
             }
+
             .input-icon {
                 right: 10px;
             }
+
             .password-toggle {
                 left: 10px;
             }
@@ -644,7 +689,9 @@ function formatFileSize($bytes)
             .card-container {
                 max-width: 400px;
             }
-            .front, .back {
+
+            .front,
+            .back {
                 padding: 20px;
             }
         }
@@ -652,15 +699,21 @@ function formatFileSize($bytes)
         /* شاشات كبيرة (ديسكتوب، فوق 1024) */
         @media (min-width: 1024px) {
             .card-container {
-                max-width: 500px; /* أوسع قليلاً */
+                max-width: 500px;
+                /* أوسع قليلاً */
             }
-            .front, .back {
-                border-width: 10px; /* إعادة الإطار السميك */
+
+            .front,
+            .back {
+                border-width: 10px;
+                /* إعادة الإطار السميك */
             }
+
             .qr-code {
                 width: 220px;
                 height: 220px;
             }
+
             .logo-img {
                 width: 170px;
             }
@@ -672,7 +725,20 @@ function formatFileSize($bytes)
                 max-width: 550px;
             }
         }
-        </style
+
+        .signature-field[data-field-type="note"] {
+            z-index: 200 !important;
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color, #e74c3c);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+    </style>
 </head>
 
 <body>
@@ -709,7 +775,7 @@ function formatFileSize($bytes)
                         $attach['uploaded_by'] == $user_id
                     );
 
-                    ?>
+                ?>
                     <div class="attachment-wrapper" data-attachment-id="<?= $attach['id'] ?>"
                         data-attachment-type="<?= $isPDF ? 'pdf' : ($isImage ? 'image' : 'other') ?>">
                         <!-- رأس المرفق مع اسم الملف وأزرار التحكم واسم الرافع وزر الحذف -->
@@ -838,7 +904,7 @@ function formatFileSize($bytes)
 
         <?php if (!$is_modal): ?>
             <button onclick="goBack()" class="btn-circle" title="العودة للوحة الرئيسية"">
-                <i class="fas fa-arrow-right"></i>
+                <i class=" fas fa-arrow-right"></i>
             </button>
         <?php else: ?>
             <button onclick="closeModal()" class="btn-circle btn-danger" title="إغلاق">
@@ -952,6 +1018,23 @@ function formatFileSize($bytes)
         </div>
     </div>
 
+    <!-- نافذة تأكيد الحذف -->
+    <div id="deleteConfirmModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-trash"></i> تأكيد الحذف</h3>
+                <span onclick="closeDeleteConfirmModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="deleteConfirmMessage">هل أنت متأكد من حذف هذه الملاحظة؟ هذا الإجراء لا يمكن التراجع عنه.</p>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeDeleteConfirmModal()" class="btn btn-secondary">إلغاء</button>
+                <button onclick="confirmDeleteNote()" class="btn btn-danger">حذف</button>
+            </div>
+        </div>
+    </div>
+
 
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -995,23 +1078,35 @@ function formatFileSize($bytes)
         // ============== دوال مساعدة ==============
         function getFieldIcon(type) {
             switch (type) {
-                case 'signature': return 'signature';
-                case 'text': return 'font';
-                case 'date': return 'calendar-alt';
-                case 'note': return 'sticky-note';
-                case 'image': return 'image';
-                default: return 'edit';
+                case 'signature':
+                    return 'signature';
+                case 'text':
+                    return 'font';
+                case 'date':
+                    return 'calendar-alt';
+                case 'note':
+                    return 'sticky-note';
+                case 'image':
+                    return 'image';
+                default:
+                    return 'edit';
             }
         }
 
         function getFieldTypeName(type) {
             switch (type) {
-                case 'signature': return 'توقيع';
-                case 'text': return 'نص';
-                case 'date': return 'تاريخ';
-                case 'note': return 'ملاحظة';
-                case 'image': return 'صورة';
-                default: return 'حقل';
+                case 'signature':
+                    return 'توقيع';
+                case 'text':
+                    return 'نص';
+                case 'date':
+                    return 'تاريخ';
+                case 'note':
+                    return 'ملاحظة';
+                case 'image':
+                    return 'صورة';
+                default:
+                    return 'حقل';
             }
         }
 
@@ -1062,11 +1157,15 @@ function formatFileSize($bytes)
 
             for (let i = 1; i <= pdfDoc.numPages; i++) {
                 const page = await pdfDoc.getPage(i);
-                const viewport = page.getViewport({ scale: 1 });
+                const viewport = page.getViewport({
+                    scale: 1
+                });
 
                 // حساب مقياس التكبير بناءً على العرض الثابت
                 const scale = (targetWidth / viewport.width) * currentScale;
-                const scaledViewport = page.getViewport({ scale: scale });
+                const scaledViewport = page.getViewport({
+                    scale: scale
+                });
 
                 pageRects[i] = {
                     width: scaledViewport.width,
@@ -1081,7 +1180,10 @@ function formatFileSize($bytes)
                 canvas.width = scaledViewport.width;
                 canvas.height = scaledViewport.height;
 
-                await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+                await page.render({
+                    canvasContext: ctx,
+                    viewport: scaledViewport
+                }).promise;
 
                 const pageDiv = document.createElement('div');
                 pageDiv.className = 'page';
@@ -1440,8 +1542,10 @@ function formatFileSize($bytes)
             const newHeight = currentHeight * scaleFactor;
 
             // حدود الحجم
-            const minWidth = 30, minHeight = 20;
-            const maxWidth = 300, maxHeight = 200;
+            const minWidth = 30,
+                minHeight = 20;
+            const maxWidth = 300,
+                maxHeight = 200;
 
             if (newWidth < minWidth || newHeight < minHeight ||
                 newWidth > maxWidth || newHeight > maxHeight) {
@@ -1496,7 +1600,7 @@ function formatFileSize($bytes)
                 fieldElement.style.width = originalWidth + 'px';
                 fieldElement.style.height = originalHeight + 'px';
             }
-             updateFieldAppearance(fieldElement);
+            updateFieldAppearance(fieldElement);
 
             // حفظ الحجم الأصلي
             await saveFieldSize(fieldId, originalWidth, originalHeight);
@@ -1628,7 +1732,7 @@ function formatFileSize($bytes)
                 const result = await response.json();
                 if (result.success) {
                     console.log('تم حفظ الحجم:', result.message);
-                    
+
                 } else {
                     console.error('خطأ في حفظ الحجم:', result.message);
                     showNotification(result.message, 'error');
@@ -1685,7 +1789,7 @@ function formatFileSize($bytes)
 
                     // إضافة حدث لمعاينة الصورة
                     setTimeout(() => {
-                        document.getElementById('imageInput').addEventListener('change', function (e) {
+                        document.getElementById('imageInput').addEventListener('change', function(e) {
                             const file = e.target.files[0];
                             if (file) {
                                 if (file.size > 2 * 1024 * 1024) {
@@ -1695,7 +1799,7 @@ function formatFileSize($bytes)
                                 }
 
                                 const reader = new FileReader();
-                                reader.onload = function (e) {
+                                reader.onload = function(e) {
                                     document.getElementById('imagePreview').innerHTML =
                                         '<img src="' + e.target.result + '" style="max-width: 200px; max-height: 150px; border: 1px solid #ddd; border-radius: 5px;">';
                                 };
@@ -1813,7 +1917,7 @@ function formatFileSize($bytes)
                     }
 
                     const reader = new FileReader();
-                    reader.onload = async function (e) {
+                    reader.onload = async function(e) {
                         value = e.target.result;
                         await saveFieldValue(value);
                     };
@@ -1847,7 +1951,7 @@ function formatFileSize($bytes)
 
                 const result = await response.json();
                 if (result.success) {
-                   
+
                     closeFieldModal();
                     setTimeout(() => location.reload(), 1000);
                 } else {
@@ -1881,7 +1985,7 @@ function formatFileSize($bytes)
         }
 
         // ============== دوال المرفقات ==============
-        document.getElementById('attachmentFile').addEventListener('change', function (e) {
+        document.getElementById('attachmentFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
                 document.getElementById('fileName').textContent = file.name;
@@ -1936,17 +2040,19 @@ function formatFileSize($bytes)
             }
 
             try {
-               
+
 
                 const response = await fetch('../documents/delete_attachment.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
                     body: `attachment_id=${attachId}&document_id=${docData.id}&csrf_token=${encodeURIComponent(csrfToken)}`
                 });
 
                 const result = await response.json();
                 if (result.success) {
-                   
+
                     // إزالة عنصر المرفق من الصفحة
                     const attachmentElement = document.querySelector(`.attachment-wrapper[data-attachment-id="${attachId}"]`);
                     if (attachmentElement) {
@@ -1959,7 +2065,7 @@ function formatFileSize($bytes)
                 showNotification('حدث خطأ في الاتصال', 'error');
             }
         }
-        
+
         // ============== معاينة الصور ==============
         function openImagePreview(imageSrc, imageName) {
             const modal = document.getElementById('imagePreviewModal');
@@ -2009,6 +2115,7 @@ function formatFileSize($bytes)
         function editDocument() {
             window.location.href = 'edit_document.php?id=' + docData.id;
         }
+
         function printDocument() {
             window.print();
         }
@@ -2046,7 +2153,9 @@ function formatFileSize($bytes)
 
                 const response = await fetch('complete_document.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
                     body: `document_id=${docData.id}`
                 });
 
@@ -2097,17 +2206,24 @@ function formatFileSize($bytes)
 
                 for (let i = 1; i <= pdfDoc.numPages; i++) {
                     const page = await pdfDoc.getPage(i);
-                    const viewport = page.getViewport({ scale: 1 });
+                    const viewport = page.getViewport({
+                        scale: 1
+                    });
 
                     const scale = Math.min(availableWidth / viewport.width, 1.2);
-                    const scaledViewport = page.getViewport({ scale: scale });
+                    const scaledViewport = page.getViewport({
+                        scale: scale
+                    });
 
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     canvas.width = scaledViewport.width;
                     canvas.height = scaledViewport.height;
 
-                    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+                    await page.render({
+                        canvasContext: ctx,
+                        viewport: scaledViewport
+                    }).promise;
 
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'page';
@@ -2127,7 +2243,7 @@ function formatFileSize($bytes)
         }
 
         // ============== بدء التحميل ==============
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             if (docData.exists && docData.ext === 'pdf') {
                 loadPDF();
             } else if (docData.exists && ['jpg', 'jpeg', 'png', 'gif'].includes(docData.ext)) {
@@ -2141,7 +2257,7 @@ function formatFileSize($bytes)
                 img.style.margin = '0 auto';
                 container.appendChild(img);
 
-                img.onload = function () {
+                img.onload = function() {
                     const imgRect = img.getBoundingClientRect();
                     pageRects[1] = {
                         width: imgRect.width,
@@ -2160,21 +2276,23 @@ function formatFileSize($bytes)
         });
 
         // ============== أحداث النوافذ ==============
-        window.onclick = function (event) {
+        window.onclick = function(event) {
             const fieldModal = document.getElementById('fieldModal');
             const signModal = document.getElementById('signModal');
             const attachModal = document.getElementById('attachModal');
             const imagePreviewModal = document.getElementById('imagePreviewModal');
             const trackModal = document.getElementById('trackModal');
+            
 
             if (event.target === fieldModal) closeFieldModal();
             if (event.target === signModal) closeSignModal();
             if (event.target === attachModal) closeAttachModal();
             if (event.target === imagePreviewModal) closeImagePreview();
             if (event.target === trackModal) closeTrackModal();
+            if (event.target === deleteConfirmModal) closeDeleteConfirmModal();
         };
 
-        document.addEventListener('keydown', function (event) {
+        document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeFieldModal();
                 closeSignModal();
@@ -2281,7 +2399,7 @@ function formatFileSize($bytes)
         }
 
         // فتح تتبع المسار إذا كان معلمة track في URL
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('track') === '1') {
                 setTimeout(() => {
@@ -2290,45 +2408,8 @@ function formatFileSize($bytes)
             }
         });
         // ============== حذف ملاحظة ==============
-        async function deleteNoteField(fieldId) {
-            if (!confirm('هل أنت متأكد من حذف هذه الملاحظة؟ هذا الإجراء لا يمكن التراجع عنه.')) {
-                return;
-            }
-
-            try {
-               
-
-                const formData = new FormData();
-                formData.append('field_id', fieldId);
-                formData.append('document_id', docData.id);
-                formData.append('csrf_token', csrfToken); 
-
-                const response = await fetch('delete_note.php', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    
-
-                    // إزالة الحقل من العرض
-                    const fieldElement = document.querySelector(`[data-field-id="${fieldId}"]`);
-                    if (fieldElement) {
-                        fieldElement.remove();
-                    }
-
-                    // تحديث قائمة الحقول في البيانات
-                    docData.fields = docData.fields.filter(f => f.id != fieldId);
-
-                } else {
-                    showNotification(result.message || 'حدث خطأ أثناء حذف الملاحظة', 'error');
-                }
-            } catch (e) {
-                console.error('خطأ في حذف الملاحظة:', e);
-                showNotification('حدث خطأ في الاتصال بالخادم', 'error');
-            }
+        function deleteNoteField(fieldId) {
+            openDeleteConfirmModal(fieldId);
         }
 
         // كائن لتخزين بيانات المرفقات (PDF فقط)
@@ -2379,17 +2460,24 @@ function formatFileSize($bytes)
 
             for (let i = 1; i <= attach.pdfDoc.numPages; i++) {
                 const page = await attach.pdfDoc.getPage(i);
-                const viewport = page.getViewport({ scale: 1 });
+                const viewport = page.getViewport({
+                    scale: 1
+                });
                 // حساب scale المناسب لملء العرض مع تطبيق scale المطلوب
                 const fitScale = (containerWidth / viewport.width) * scale;
-                const scaledViewport = page.getViewport({ scale: fitScale });
+                const scaledViewport = page.getViewport({
+                    scale: fitScale
+                });
 
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 canvas.width = scaledViewport.width;
                 canvas.height = scaledViewport.height;
 
-                await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+                await page.render({
+                    canvasContext: ctx,
+                    viewport: scaledViewport
+                }).promise;
 
                 const pageDiv = document.createElement('div');
                 pageDiv.className = 'attachment-page';
@@ -2473,7 +2561,7 @@ function formatFileSize($bytes)
         }
 
         // استدعاء التهيئة بعد تحميل المستند الأساسي
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             // ... الكود السابق ...
             setTimeout(() => {
                 initAttachments();
@@ -2521,7 +2609,7 @@ function formatFileSize($bytes)
                 }
             });
 
-            iframe.onerror = function () {
+            iframe.onerror = function() {
                 clearTimeout(printTimeout);
                 showNotification('فشل تحميل صفحة الطباعة', 'error');
                 document.body.removeChild(iframe);
@@ -2746,7 +2834,7 @@ function formatFileSize($bytes)
             printWindow.document.close();
 
             // بعد تحميل المحتوى، نقوم بالطباعة ثم إغلاق النافذة
-            printWindow.onload = function () {
+            printWindow.onload = function() {
                 setTimeout(() => {
                     printWindow.print();
                     setTimeout(() => {
@@ -2761,109 +2849,168 @@ function formatFileSize($bytes)
 
 
         // ============== دوال نافذة إضافة المرفق (بالتصميم الجديد) ==============
-document.addEventListener('DOMContentLoaded', function() {
-    const uploadArea = document.getElementById('attachUploadArea');
-    const fileInput = document.getElementById('attachmentFile');
-    const previewDiv = document.getElementById('attachPreview');
-    const previewImg = document.getElementById('attachPreviewImage');
-    const fileNameDiv = document.getElementById('attachFileName');
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadArea = document.getElementById('attachUploadArea');
+            const fileInput = document.getElementById('attachmentFile');
+            const previewDiv = document.getElementById('attachPreview');
+            const previewImg = document.getElementById('attachPreviewImage');
+            const fileNameDiv = document.getElementById('attachFileName');
 
-    if (uploadArea && fileInput) {
-        // فتح نافذة اختيار الملف عند النقر على المنطقة
-        uploadArea.addEventListener('click', () => fileInput.click());
+            if (uploadArea && fileInput) {
+                // فتح نافذة اختيار الملف عند النقر على المنطقة
+                uploadArea.addEventListener('click', () => fileInput.click());
 
-        // معالجة اختيار الملف
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                // التحقق من الحجم (اختياري)
-                if (file.size > 10 * 1024 * 1024) {
-                    showNotification('حجم الملف كبير جداً (الحد الأقصى 10MB)', 'error');
-                    fileInput.value = '';
-                    return;
-                }
+                // معالجة اختيار الملف
+                fileInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        // التحقق من الحجم (اختياري)
+                        if (file.size > 10 * 1024 * 1024) {
+                            showNotification('حجم الملف كبير جداً (الحد الأقصى 10MB)', 'error');
+                            fileInput.value = '';
+                            return;
+                        }
 
-                // عرض اسم الملف
-                fileNameDiv.textContent = file.name;
-                previewDiv.style.display = 'block';
+                        // عرض اسم الملف
+                        fileNameDiv.textContent = file.name;
+                        previewDiv.style.display = 'block';
 
-                // إذا كان الملف صورة، اعرض معاينة
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onload = function(ev) {
-                        previewImg.src = ev.target.result;
-                        previewImg.style.display = 'block';
-                        fileNameDiv.style.display = 'none'; // إخفاء اسم الملف عند عرض الصورة
-                    };
-                    reader.readAsDataURL(file);
-                } else {
-                    previewImg.style.display = 'none';
-                    fileNameDiv.style.display = 'block';
-                }
-            } else {
-                previewDiv.style.display = 'none';
-                previewImg.src = '';
-                fileNameDiv.textContent = '';
+                        // إذا كان الملف صورة، اعرض معاينة
+                        if (file.type.startsWith('image/')) {
+                            const reader = new FileReader();
+                            reader.onload = function(ev) {
+                                previewImg.src = ev.target.result;
+                                previewImg.style.display = 'block';
+                                fileNameDiv.style.display = 'none'; // إخفاء اسم الملف عند عرض الصورة
+                            };
+                            reader.readAsDataURL(file);
+                        } else {
+                            previewImg.style.display = 'none';
+                            fileNameDiv.style.display = 'block';
+                        }
+                    } else {
+                        previewDiv.style.display = 'none';
+                        previewImg.src = '';
+                        fileNameDiv.textContent = '';
+                    }
+                });
             }
         });
-    }
-});
 
-// تحديث دالة فتح النافذة لإعادة التعيين
-function openAttachModal() {
-    const modal = document.getElementById('attachModal');
-    const fileInput = document.getElementById('attachmentFile');
-    const previewDiv = document.getElementById('attachPreview');
-    const previewImg = document.getElementById('attachPreviewImage');
-    const fileNameDiv = document.getElementById('attachFileName');
+        // تحديث دالة فتح النافذة لإعادة التعيين
+        function openAttachModal() {
+            const modal = document.getElementById('attachModal');
+            const fileInput = document.getElementById('attachmentFile');
+            const previewDiv = document.getElementById('attachPreview');
+            const previewImg = document.getElementById('attachPreviewImage');
+            const fileNameDiv = document.getElementById('attachFileName');
 
-    if (fileInput) fileInput.value = '';
-    if (previewDiv) previewDiv.style.display = 'none';
-    if (previewImg) previewImg.src = '';
-    if (fileNameDiv) fileNameDiv.textContent = '';
+            if (fileInput) fileInput.value = '';
+            if (previewDiv) previewDiv.style.display = 'none';
+            if (previewImg) previewImg.src = '';
+            if (fileNameDiv) fileNameDiv.textContent = '';
 
-    modal.style.display = 'flex';
-}
-
-// دالة الإغلاق (موجودة أصلاً)
-function closeAttachModal() {
-    document.getElementById('attachModal').style.display = 'none';
-}
-
-
-// دالة لتحديث مظهر المحتوى الداخلي للحقل بعد تغيير الحجم
-function updateFieldAppearance(fieldElement) {
-    if (!fieldElement) return;
-    
-    const fieldType = fieldElement.dataset.fieldType;
-    const isSigned = fieldElement.classList.contains('signed');
-    const currentWidth = parseFloat(fieldElement.style.width);
-    const currentHeight = parseFloat(fieldElement.style.height);
-    
-    // تحديث النصوص (سواء كانت موقعة أو غير موقعة)
-    const textElements = fieldElement.querySelectorAll('.signature-text, .note-content, .field-text');
-    textElements.forEach(el => {
-        let newFontSize;
-        if (fieldType === 'note') {
-            newFontSize = Math.min(16, currentHeight * 0.3); // حجم مناسب للملاحظات
-        } else {
-            newFontSize = Math.min(currentWidth * 0.15, currentHeight * 0.5);
+            modal.style.display = 'flex';
         }
-        el.style.fontSize = newFontSize + 'px';
-    });
-    
-    // تحديث الأيقونات والنصوص الصغيرة للحقول غير الموقعة
-    if (!isSigned) {
-        const icon = fieldElement.querySelector('.field-content i.fas');
-        if (icon) {
-            icon.style.fontSize = (currentHeight * 0.4) + 'px';
+
+        // دالة الإغلاق (موجودة أصلاً)
+        function closeAttachModal() {
+            document.getElementById('attachModal').style.display = 'none';
         }
-        const smalls = fieldElement.querySelectorAll('.field-content small');
-        smalls.forEach(small => {
-            small.style.fontSize = Math.max(8, currentHeight * 0.2) + 'px';
-        });
-    }
-}
+
+
+        // دالة لتحديث مظهر المحتوى الداخلي للحقل بعد تغيير الحجم
+        function updateFieldAppearance(fieldElement) {
+            if (!fieldElement) return;
+
+            const fieldType = fieldElement.dataset.fieldType;
+            const isSigned = fieldElement.classList.contains('signed');
+            const currentWidth = parseFloat(fieldElement.style.width);
+            const currentHeight = parseFloat(fieldElement.style.height);
+
+            // تحديث النصوص (سواء كانت موقعة أو غير موقعة)
+            const textElements = fieldElement.querySelectorAll('.signature-text, .note-content, .field-text');
+            textElements.forEach(el => {
+                let newFontSize;
+                if (fieldType === 'note') {
+                    newFontSize = Math.min(16, currentHeight * 0.3); // حجم مناسب للملاحظات
+                } else {
+                    newFontSize = Math.min(currentWidth * 0.15, currentHeight * 0.5);
+                }
+                el.style.fontSize = newFontSize + 'px';
+            });
+
+            // تحديث الأيقونات والنصوص الصغيرة للحقول غير الموقعة
+            if (!isSigned) {
+                const icon = fieldElement.querySelector('.field-content i.fas');
+                if (icon) {
+                    icon.style.fontSize = (currentHeight * 0.4) + 'px';
+                }
+                const smalls = fieldElement.querySelectorAll('.field-content small');
+                smalls.forEach(small => {
+                    small.style.fontSize = Math.max(8, currentHeight * 0.2) + 'px';
+                });
+            }
+        }
+        // متغير لتخزين معرف الملاحظة المراد حذفها
+        let pendingDeleteFieldId = null;
+
+        // فتح نافذة تأكيد الحذف
+        function openDeleteConfirmModal(fieldId) {
+            pendingDeleteFieldId = fieldId;
+            document.getElementById('deleteConfirmModal').style.display = 'flex';
+        }
+
+        // إغلاق نافذة تأكيد الحذف
+        function closeDeleteConfirmModal() {
+            document.getElementById('deleteConfirmModal').style.display = 'none';
+            pendingDeleteFieldId = null;
+        }
+
+        // تنفيذ الحذف بعد التأكيد
+        async function confirmDeleteNote() {
+            if (!pendingDeleteFieldId) return;
+
+            const fieldId = pendingDeleteFieldId;
+            closeDeleteConfirmModal(); // إغلاق النافذة أولاً
+
+            // إظهار رسالة "جاري الحذف..."
+            showNotification('جاري حذف الملاحظة...', 'info');
+
+            try {
+                const formData = new FormData();
+                formData.append('field_id', fieldId);
+                formData.append('document_id', docData.id);
+                formData.append('csrf_token', csrfToken);
+
+                const response = await fetch('delete_note.php', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('تم حذف الملاحظة بنجاح', 'success');
+
+                    // إزالة الحقل من العرض
+                    const fieldElement = document.querySelector(`[data-field-id="${fieldId}"]`);
+                    if (fieldElement) {
+                        fieldElement.remove();
+                    }
+
+                    // تحديث قائمة الحقول في البيانات
+                    docData.fields = docData.fields.filter(f => f.id != fieldId);
+                } else {
+                    showNotification(result.message || 'حدث خطأ أثناء حذف الملاحظة', 'error');
+                }
+            } catch (e) {
+                console.error('خطأ في حذف الملاحظة:', e);
+                showNotification('حدث خطأ في الاتصال بالخادم', 'error');
+            } finally {
+                pendingDeleteFieldId = null;
+            }
+        }
     </script>
 </body>
 

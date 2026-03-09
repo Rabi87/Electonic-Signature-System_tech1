@@ -283,7 +283,7 @@ foreach ($roles as $role) {
             case 'partially_completed':
                 $icon = 'fas fa-clock';
                 $color = 'orange';
-                $status_text = 'للاستكمال';
+                $status_text = 'قيد التعبئة';
                 break;
             default:
                 $icon = 'fas fa-clock';
@@ -387,9 +387,8 @@ $dept_members_query = "
         dep.id AS dept_id,
         dep.name AS dept_name,
         COALESCE(dus.status, 'pending') AS status,
-        1 AS received,
-        MIN(dw.action_date) AS workflow_date,
-        COALESCE(MAX(dus.updated_at), MIN(dw.action_date)) AS display_date
+        dw.action_date AS workflow_date,
+        COALESCE(dus.updated_at, dw.action_date) AS display_date
     FROM document_workflow dw
     JOIN users u        ON dw.to_user_id  = u.id
     JOIN roles r        ON u.role_id      = r.id
@@ -398,7 +397,7 @@ $dept_members_query = "
            ON dus.document_id = dw.document_id AND dus.user_id = u.id
     WHERE dw.document_id = :doc_id
       AND r.role_name IN ('employee','section_manager','department_manager')
-    GROUP BY u.id, u.full_name, r.role_name, r.id, dep.id, dep.name, dus.status
+    GROUP BY u.id
     UNION
     SELECT
         u.id AS user_id,
@@ -408,7 +407,6 @@ $dept_members_query = "
         dep.id AS dept_id,
         dep.name AS dept_name,
         'pending' AS status,
-        0 AS received,
         d.created_at AS workflow_date,
         d.created_at AS display_date
     FROM documents d
@@ -426,25 +424,6 @@ $dept_members_query = "
 $st = $db->prepare($dept_members_query);
 $st->execute([':doc_id' => $document_id, ':doc_id2' => $document_id]);
 $dept_members_raw = $st->fetchAll(PDO::FETCH_ASSOC);
-
-// جلب آخر action قام به كل مستخدم كـ مُرسِل في هذا المستند
-// هذا يخبرنا: هل أرسل العضو شيئاً للديوان؟ وماذا أرسل؟
-$actions_query = $db->prepare("
-    SELECT from_user_id, action_type
-    FROM document_workflow
-    WHERE document_id = :doc_id
-      AND from_user_id IS NOT NULL
-    ORDER BY action_date DESC
-");
-$actions_query->execute([':doc_id' => $document_id]);
-// نأخذ آخر action لكل مستخدم
-$last_action_by_user = [];
-foreach ($actions_query->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $uid = $row['from_user_id'];
-    if (!isset($last_action_by_user[$uid])) {
-        $last_action_by_user[$uid] = $row['action_type'];
-    }
-}
 
 // ترتيب تسلسل الأدوار داخل الإدارة للتراسل مع الديوان الخاص
 $role_seq = ['employee' => 1, 'section_manager' => 2, 'department_manager' => 3];
@@ -472,8 +451,7 @@ foreach ($dept_members_raw as $m) {
             case 'rejected':
                 $col = 'red'; $stxt = 'مرفوض'; break;
             case 'partially_signed': case 'partially_completed':
-            case 'completion_required':
-                $col = 'orange'; $stxt = 'للاستكمال'; break;
+                $col = 'orange'; $stxt = 'قيد التعبئة'; break;
             default:
                 $col = 'gray'; $stxt = 'بانتظار';
         }
@@ -489,15 +467,12 @@ foreach ($dept_members_raw as $m) {
         'status_text' => $stxt,
         'date'        => $m['display_date'] ? date('Y-m-d H:i', strtotime($m['display_date'])) : '',
         'is_current'  => $is_cur,
-        'received'    => (int)($m['received'] ?? 0),
-        'last_action' => $last_action_by_user[$m['user_id']] ?? null,
     ];
 }
 
 // ترتيب أعضاء كل إدارة: موظف → رئيس قسم → مدير دائرة
-foreach ($dept_groups as &$dg) {
-    usort($dg['members'], function($a, $b) { return $a['seq'] - $b['seq']; });
-}
+foreach ($dept_groups as &$dg)
+    usort($dg['members'], fn($a, $b) => $a['seq'] <=> $b['seq']);
 unset($dg);
 $dept_groups = array_values($dept_groups);
 
@@ -509,31 +484,25 @@ $board_query = "
     SELECT
         u.id AS user_id, u.full_name,
         r.role_name, r.id AS role_id,
-        u.department_id AS dept_id,
-        dep.name AS dept_name,
         COALESCE(dus.status, 'pending') AS status,
-        COALESCE(MAX(dus.updated_at), MIN(dw.action_date)) AS display_date
+        COALESCE(dus.updated_at, dw.action_date) AS display_date
     FROM document_workflow dw
     JOIN users u ON dw.to_user_id = u.id
     JOIN roles r ON u.role_id = r.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
     LEFT JOIN document_user_status dus
            ON dus.document_id = dw.document_id AND dus.user_id = u.id
     WHERE dw.document_id = :doc_id
       AND r.role_name IN ('private_board','sub_board','board','office_manager','deputy_ceo','ceo','admin')
-    GROUP BY u.id, u.full_name, r.role_name, r.id, u.department_id, dep.name, dus.status
+    GROUP BY u.id
     UNION
     SELECT
         u.id AS user_id, u.full_name,
         r.role_name, r.id AS role_id,
-        u.department_id AS dept_id,
-        dep.name AS dept_name,
         'pending' AS status,
         d.created_at AS display_date
     FROM documents d
     JOIN users u ON d.created_by = u.id
     JOIN roles r ON u.role_id = r.id
-    LEFT JOIN departments dep ON u.department_id = dep.id
     WHERE d.id = :doc_id2
       AND r.role_name IN ('private_board','sub_board','board','office_manager','deputy_ceo','ceo','admin')
       AND NOT EXISTS (
@@ -555,146 +524,48 @@ $board_labels = [
     'deputy_ceo' => 'نائب الرئيس', 'ceo' => 'الرئيس التنفيذي', 'admin' => 'المسؤول'
 ];
 
-$prio = ['blue'=>0,'green'=>1,'orange'=>2,'red'=>3,'gray'=>4];
-
-// دالة تحديد لون العقدة
-function nodeColor($status, $is_cur) {
-    if ($is_cur) return ['blue','قيد المعالجة'];
-    switch ($status) {
-        case 'completed': case 'approved': return ['green','مكتمل'];
-        case 'rejected':                   return ['red','مرفوض'];
-        case 'partially_signed': case 'partially_completed': return ['orange','للاستكمال'];
-        default: return ['gray','بانتظار'];
-    }
-}
-
-// ── فصل private_board عن باقي أدوار الديوان ──
-// كل ديوان خاص يُعرَّف بـ user_id الخاص به (وليس فقط dept_id)
-// لأن ممكن تكون هناك إدارتين مختلفتين لكل منهما ديوان خاص مستقل
-$private_boards_by_dept = [];  // dept_id → node
-$chain_raw = [];
-
-foreach ($board_raw as $bm) {
-    $is_cur = ($document['current_holder_id'] == $bm['user_id']);
-    [$col,$stxt] = nodeColor($bm['status'], $is_cur);
-
-    if ($bm['role_name'] === 'private_board') {
-        // المفتاح: dept_id إن وُجد، وإلا user_id لضمان ظهور كل ديوان خاص
-        $key = !empty($bm['dept_id']) ? 'dept_'.$bm['dept_id'] : 'user_'.$bm['user_id'];
-        $node = [
-            'user_id'     => $bm['user_id'],
-            'name'        => $bm['full_name'],
-            'role'        => 'الديوان الخاص',
-            'role_key'    => 'private_board',
-            'dept_id'     => $bm['dept_id'] ?? null,
-            'dept_name'   => $bm['dept_name'] ?? '',
-            'color'       => $col,
-            'status_text' => $stxt,
-            'date'        => $bm['display_date'] ? date('Y-m-d H:i', strtotime($bm['display_date'])) : '',
-            'is_current'  => $is_cur,
-        ];
-        // نحتفظ بالأعلى أولوية (الأكثر تقدماً)
-        if (!isset($private_boards_by_dept[$key]) ||
-            ($prio[$col]??5) < ($prio[$private_boards_by_dept[$key]['color']]??5)) {
-            $private_boards_by_dept[$key] = $node;
-        }
-    } else {
-        $chain_raw[] = $bm;
-    }
-}
-
-// ── ربط الديوان الخاص بإدارته في dept_groups ──
-// أولاً: نربط بـ dept_id المطابق
-// ثانياً: الدواوين الخاصة غير المرتبطة تبقى في $orphan_private_boards
-$used_pb_keys = [];
-foreach ($dept_groups as &$dg) {
-    $did = $dg['id'];
-    $key = 'dept_'.$did;
-    if (isset($private_boards_by_dept[$key])) {
-        $dg['private_board'] = $private_boards_by_dept[$key];
-        $used_pb_keys[] = $key;
-    } else {
-        $dg['private_board'] = null;
-    }
-}
-unset($dg);
-
-// الدواوين الخاصة غير المرتبطة بإدارة محددة
-$orphan_private_boards = array_filter(
-    $private_boards_by_dept,
-    fn($k) => !in_array($k, $used_pb_keys),
-    ARRAY_FILTER_USE_KEY
-);
-
-// ── بناء سلسلة الديوان (sub_board → board → ...) ──
 $board_by_role = [];
-foreach ($chain_raw as $bm) {
+foreach ($board_raw as $bm) {
     $rn = $bm['role_name'];
     if (!isset($board_by_role[$rn])) $board_by_role[$rn] = [];
     $is_cur = ($document['current_holder_id'] == $bm['user_id']);
-    [$col,$stxt] = nodeColor($bm['status'], $is_cur);
+    if ($is_cur) {
+        $col = 'blue'; $stxt = 'قيد المعالجة';
+    } else {
+        switch ($bm['status']) {
+            case 'completed': case 'approved': $col = 'green';  $stxt = 'مكتمل';        break;
+            case 'rejected':                   $col = 'red';    $stxt = 'مرفوض';        break;
+            case 'partially_signed': case 'partially_completed': $col = 'orange'; $stxt = 'قيد التعبئة'; break;
+            default: $col = 'gray'; $stxt = 'بانتظار';
+        }
+    }
     $board_by_role[$rn][] = [
-        'user_id'=>$bm['user_id'],'name'=>$bm['full_name'],
-        'role'=>$board_labels[$rn]??$rn,'role_name'=>$rn,
-        'color'=>$col,'status_text'=>$stxt,
-        'date'=>$bm['display_date']?date('Y-m-d H:i',strtotime($bm['display_date'])):'',
-        'is_current'=>$is_cur,
+        'user_id' => $bm['user_id'], 'name' => $bm['full_name'],
+        'role' => $board_labels[$rn] ?? $rn, 'role_name' => $rn,
+        'color' => $col, 'status_text' => $stxt,
+        'date' => $bm['display_date'] ? date('Y-m-d H:i', strtotime($bm['display_date'])) : '',
+        'is_current' => $is_cur,
     ];
 }
-uksort($board_by_role,fn($a,$b)=>($board_seq[$a]??99)-($board_seq[$b]??99));
+uksort($board_by_role, fn($a, $b) => ($board_seq[$a] ?? 99) <=> ($board_seq[$b] ?? 99));
 
+$prio = ['blue' => 0, 'green' => 1, 'orange' => 2, 'red' => 3, 'gray' => 4];
 $board_nodes = [];
 foreach ($board_by_role as $rn => $members) {
-    usort($members,fn($a,$b)=>($prio[$a['color']]??5)-($prio[$b['color']]??5));
-    $rep=$members[0];
+    usort($members, fn($a, $b) => ($prio[$a['color']] ?? 5) <=> ($prio[$b['color']] ?? 5));
+    $rep = $members[0];
     $board_nodes[] = [
-        'role_name'=>$rep['role'],'role_key'=>$rn,'users'=>$members,
-        'color'=>$rep['color'],'status_text'=>$rep['status_text'],
-        'date'=>$rep['date'],'user_id'=>$rep['user_id'],'name'=>$rep['name'],
-        'seq'=>$board_seq[$rn]??99,
+        'role_name'   => $rep['role'],
+        'role_key'    => $rn,
+        'users'       => $members,
+        'color'       => $rep['color'],
+        'status_text' => $rep['status_text'],
+        'date'        => $rep['date'],
+        'user_id'     => $rep['user_id'],
+        'name'        => $rep['name'],
+        'seq'         => $board_seq[$rn] ?? 99,
     ];
 }
-
-// الدواوين الخاصة اليتيمة (لإدارات ليست في dept_groups)
-$orphan_pb_list = array_values($orphan_private_boards);
-
-// جلب آخر action أرسله كل مستخدم في سلسلة الديوان
-$chain_actions_query = $db->prepare("
-    SELECT from_user_id, action_type
-    FROM document_workflow
-    WHERE document_id = :doc_id
-      AND from_user_id IS NOT NULL
-    ORDER BY action_date DESC
-");
-$chain_actions_query->execute([':doc_id' => $document_id]);
-$chain_last_action = [];
-foreach ($chain_actions_query->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $uid = $row['from_user_id'];
-    if (!isset($chain_last_action[$uid])) {
-        $chain_last_action[$uid] = $row['action_type'];
-    }
-}
-
-// أضف last_action لكل node في سلسلة الديوان
-foreach ($board_nodes as &$bn) {
-    $bn['last_action'] = $chain_last_action[$bn['user_id']] ?? null;
-}
-unset($bn);
-
-// أضف last_action لكل ديوان خاص في dept_groups
-foreach ($dept_groups as &$dg) {
-    if ($dg['private_board']) {
-        $pb_uid = $dg['private_board']['user_id'];
-        $dg['private_board']['last_action'] = $chain_last_action[$pb_uid] ?? null;
-    }
-}
-unset($dg);
-
-// أضف last_action لكل ديوان خاص يتيم
-foreach ($orphan_pb_list as &$opb) {
-    $opb['last_action'] = $chain_last_action[$opb['user_id']] ?? null;
-}
-unset($opb);
 
 ?>
 <!DOCTYPE html>
@@ -708,38 +579,41 @@ unset($opb);
 <link rel="stylesheet" href="../assets/css/style.css">
 <style>
 :root{
-  --bg:#ffffff; --surf:#f6f8fa; --surf2:#eaeef2; --surf3:#d0d7de;
-  --border:#d0d7de; --border2:#c6cdd4;
-  --text:#1f2328; --muted:#636c76; --muted2:#818b98;
-  --blue:#0969da; --green:#1a7f37; --red:#cf222e;
-  --orange:#9a6700; --gray:#818b98; --purple:#8250df;
+  --bg:#0d1117; --surf:#161b22; --surf2:#21262d; --surf3:#2d333b;
+  --border:#30363d; --border2:#3d444d;
+  --text:#cdd9e5; --muted:#768390; --muted2:#545d68;
+  --blue:#539bf5; --green:#57ab5a; --red:#e5534b;
+  --orange:#c69026; --gray:#545d68; --purple:#b083f0;
 }
-html { background:#ffffff !important; }
+/* override any external stylesheet (style.css) that sets white/light backgrounds */
+html { background:#0d1117 !important; }
 body {
-  background:#ffffff !important;
-  background-color:#ffffff !important;
-  color:#1f2328 !important;
+  background:#0d1117 !important;
+  background-color:#0d1117 !important;
+  color:#cdd9e5 !important;
   font-family:'Cairo',sans-serif !important;
   min-height:100vh;
   margin:0 !important;
   padding:0 !important;
 }
+/* reset common external overrides */
 *{box-sizing:border-box;}
 .container, .wrapper, .main-content, .content-area, main, section {
   background:transparent !important;
   color:inherit !important;
 }
+/* make sure cards override too */
 .hdr, .graph-card, .sigs {
-  background:#f6f8fa !important;
-  color:#1f2328 !important;
+  background:#161b22 !important;
+  color:#cdd9e5 !important;
 }
 .pill {
-  background:#eaeef2 !important;
-  color:#1f2328 !important;
+  background:#21262d !important;
+  color:#cdd9e5 !important;
 }
 #tip, .r-box {
-  background:#ffffff !important;
-  color:#1f2328 !important;
+  background:#161b22 !important;
+  color:#cdd9e5 !important;
 }
 .page{max-width:1400px;margin:0 auto;padding:24px 20px;}
 
@@ -752,15 +626,14 @@ body {
 .pill{display:flex;align-items:center;gap:7px;background:var(--surf2);border:1px solid var(--border);
   border-radius:20px;padding:5px 14px;font-size:.82rem;}
 .pill i{color:var(--blue);font-size:.8rem;}
-.pill strong{color:#1f2328;}
+.pill strong{color:#fff;}
 
 .legend{display:flex;flex-wrap:wrap;justify-content:center;gap:18px;margin-bottom:20px;align-items:center;}
 .leg{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted);}
 .leg-dot{width:10px;height:10px;border-radius:50%;}
 
 .graph-card{background:var(--surf);border:1px solid var(--border);border-radius:12px;
-  padding:32px 20px 32px 28px;margin-bottom:20px;overflow-x:auto;
-  display:flex;flex-direction:column;align-items:center;}
+  padding:32px 20px 32px 28px;margin-bottom:20px;overflow-x:auto;}
 .graph-title{font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:28px;
   display:flex;align-items:center;gap:8px;}
 .graph-title i{color:var(--blue);}
@@ -769,9 +642,9 @@ body {
 #tip{position:fixed;z-index:9999;background:var(--surf);border:1px solid var(--border2);
   border-radius:10px;padding:13px 16px;min-width:185px;max-width:250px;
   pointer-events:none;opacity:0;transition:opacity .15s;
-  box-shadow:0 4px 16px rgba(0,0,0,.12);}
+  box-shadow:0 16px 36px rgba(0,0,0,.6);}
 #tip.on{opacity:1;}
-.tip-role{font-size:.9rem;font-weight:700;color:#1f2328;margin-bottom:6px;}
+.tip-role{font-size:.9rem;font-weight:700;color:#fff;margin-bottom:6px;}
 .tip-user{font-size:.78rem;color:var(--muted);margin-bottom:3px;display:flex;align-items:center;gap:5px;}
 .tip-date{font-size:.72rem;color:var(--muted2);direction:ltr;margin-bottom:7px;}
 .tip-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:700;}
@@ -782,7 +655,7 @@ body {
 .tip-badge.gray  {background:rgba(84,93,104,.3);   color:var(--muted);}
 .tip-badge.purple{background:rgba(176,131,240,.18);color:var(--purple);}
 
-.r-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+.r-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
   z-index:5000;align-items:center;justify-content:center;}
 .r-overlay.on{display:flex;}
 .r-box{background:var(--surf);border:1px solid var(--border);border-radius:12px;
@@ -813,7 +686,7 @@ body {
   background:linear-gradient(135deg,#57ab5a,#2d6a2f);
   display:flex;align-items:center;justify-content:center;
   color:#fff;font-weight:700;font-size:.95rem;}
-.sig-name{font-weight:600;color:#1f2328;font-size:.88rem;}
+.sig-name{font-weight:600;color:#fff;font-size:.88rem;}
 .sig-sub{font-size:.73rem;color:var(--muted);line-height:1.7;}
 
 @keyframes pulse{0%{opacity:1;}50%{opacity:.4;}100%{opacity:1;}}
@@ -835,7 +708,7 @@ body {
     <div class="pill"><i class="fas fa-circle"></i><span>الحالة:</span>
       <?php
       $slabels = ['draft'=>'مسودة','pending'=>'قيد الانتظار','under_review'=>'قيد المراجعة',
-                  'completed'=>'مكتمل','partially_signed'=>'للاستكمال','rejected'=>'مرفوض',
+                  'completed'=>'مكتمل','partially_signed'=>'قيد التعبئة','rejected'=>'مرفوض',
                   'partially_completed'=>'مكتملة جزئياً','completion_required'=>'استكمال'];
       ?>
       <strong><?php echo $slabels[$document['current_status']] ?? $document['current_status']; ?></strong>
@@ -848,7 +721,7 @@ body {
   <div class="leg"><div class="leg-dot" style="background:#539bf5;box-shadow:0 0 5px #539bf5aa;"></div><span>قيد المعالجة</span></div>
   <div class="leg"><div class="leg-dot" style="background:#57ab5a;"></div><span>مكتمل</span></div>
   <div class="leg"><div class="leg-dot" style="background:#e5534b;"></div><span>مرفوض</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#d4a017;"></div><span>للاستكمال</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#c69026;"></div><span>قيد التعبئة</span></div>
   <div class="leg"><div class="leg-dot" style="background:#545d68;"></div><span>بانتظار</span></div>
   <div class="leg"><div class="leg-dot" style="background:#b083f0;"></div><span>مسار الديوان</span></div>
   <!-- سهم إرسال -->
@@ -874,9 +747,8 @@ body {
   <div class="graph-title"><i class="fas fa-code-branch"></i> مسار تتبع المستند</div>
 
   <script>
-  const DEPT_GROUPS  = <?php echo json_encode($dept_groups, JSON_UNESCAPED_UNICODE); ?>;
-  const BOARD_NODES  = <?php echo json_encode($board_nodes, JSON_UNESCAPED_UNICODE); ?>;
-  const ORPHAN_PB    = <?php echo json_encode($orphan_pb_list, JSON_UNESCAPED_UNICODE); ?>;
+  const DEPT_GROUPS = <?php echo json_encode($dept_groups, JSON_UNESCAPED_UNICODE); ?>;
+  const BOARD_NODES = <?php echo json_encode($board_nodes, JSON_UNESCAPED_UNICODE); ?>;
   </script>
 
   <svg id="svg-track" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -895,7 +767,6 @@ body {
       <p>إرسال تذكير إلى <strong id="rName">...</strong></p>
       <input type="hidden" id="rUid">
       <input type="hidden" id="rDoc" value="<?php echo $document_id; ?>">
-      <input type="hidden" id="rSender" value="<?php echo (int)$user_id; ?>">
       <textarea id="rMsg" rows="3" placeholder="رسالة اختيارية..."></textarea>
     </div>
     <div class="r-ft">
@@ -935,369 +806,274 @@ body {
 
 <script>
 
-(function(){
+// ════════════════════════════════════════════════════════════════
+//  STAR TOPOLOGY SVG RENDERER
+// ════════════════════════════════════════════════════════════════
+(function () {
 "use strict";
 
 const SVG = document.getElementById('svg-track');
 const TIP = document.getElementById('tip');
 const NS  = 'http://www.w3.org/2000/svg';
 
-const C = {
-  blue  :'#0969da', green :'#1a7f37', red   :'#cf222e',
-  orange:'#9a6700', gray  :'#818b98', purple:'#8250df',
-  yellow:'#d4a017'
-};
-const BG = {
-  page:'#ffffff', card:'#f6f8fa', border:'#d0d7de',
-  text:'#1f2328', muted:'#636c76',
-};
+const C = { blue:'#539bf5', green:'#57ab5a', red:'#e5534b', orange:'#c69026', gray:'#545d68', purple:'#b083f0' };
 
 const L = {
-  padT:70, padL:30,
-  R:28,
-  rowH:90,
-  deptGap:80,
-  colW:110,
-  boardStepX:150,
+  padT:44, padL:24,
+  deptW:230, deptHdrH:32, rowH:46, deptGap:48,
+  gapX:90,        // أفقي: بين حافة صندوق الإدارة ومركز دائرة الديوان الخاص
+  privR:28,        // نصف قطر الديوان الخاص
+  boardR:22,       // نصف قطر باقي الدوائر
+  boardStepX:165,  // خطوة أفقية بين دوائر الديوان
 };
 
-// ── helpers ──
-function el(tag,attrs,parent){
-  const e=document.createElementNS(NS,tag);
-  Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,String(v)));
-  if(parent)parent.appendChild(e);
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+  if (parent) parent.appendChild(e);
   return e;
+}
+
+function txt(x, y, str, fill, size, anchor, weight) {
+  const t = el('text',{x,y,'text-anchor':anchor||'middle',fill:fill||'#cdd9e5',
+    'font-size':size||11,'font-family':'Cairo,sans-serif','font-weight':weight||'400','pointer-events':'none'},SVG);
+  t.textContent=str; return t;
 }
 
 // ── Arrow markers ──
 const _mk={};
 function mk(col){
-  const id='mk_'+col.replace('#','');
-  if(_mk[id])return 'url(#'+id+')';
+  const id='mk'+col.replace('#','');
+  if(_mk[id]) return 'url(#'+id+')';
   _mk[id]=true;
-  let defs=SVG.querySelector('defs');
-  if(!defs)defs=el('defs',{},SVG);
-  const m=el('marker',{id,markerWidth:'9',markerHeight:'9',
-    refX:'8',refY:'4.5',orient:'auto'},defs);
-  el('polygon',{points:'0,1 9,4.5 0,8',fill:col},m);
+  let defs=SVG.querySelector('defs'); if(!defs) defs=el('defs',{},SVG);
+  const m=el('marker',{id,'markerWidth':'8','markerHeight':'8','refX':'7','refY':'4','orient':'auto'},defs);
+  el('polygon',{points:'0,0 8,4 0,8',fill:col},m);
   return 'url(#'+id+')';
 }
 
-// ── curved arrow: dashed=إرسال، solid=رد/موافقة/رفض ──
-function arrow(x1,y1,x2,y2,col,dashed,bend){
+// ── Curved arrow ──
+function arc(x1,y1,x2,y2,col,bend){
   bend=bend||0;
-  const mx=(x1+x2)/2, my=(y1+y2)/2+bend;
-  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy)||1;
-  const ex=x2-(dx/len)*9,ey=y2-(dy/len)*9;
-  el('path',{d:'M'+x1+','+y1+' Q'+mx+','+my+' '+ex+','+ey,
-    fill:'none',stroke:col,
-    'stroke-width':dashed?'1.9':'2.4',
-    'stroke-dasharray':dashed?'7,4':'none',
+  const mx=(x1+x2)/2+bend, my=(y1+y2)/2;
+  // shorten end slightly so arrowhead doesn't overlap target
+  const dx=x2-x1, dy=y2-y1, len=Math.sqrt(dx*dx+dy*dy)||1;
+  const ex=x2-(dx/len)*7, ey=y2-(dy/len)*7;
+  el('path',{d:`M${x1},${y1} Q${mx},${my} ${ex},${ey}`,
+    fill:'none',stroke:col,'stroke-width':'1.8','stroke-dasharray':'5,3',
     'marker-end':mk(col),opacity:'0.9'},SVG);
 }
 
-// ── Tooltips ──
+// ── Straight arrow ──
+function sarrow(x1,y1,x2,y2,col){
+  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy)||1;
+  const ex=x2-(dx/len)*8,ey=y2-(dy/len)*8;
+  el('line',{x1,y1,x2:ex,y2:ey,stroke:col,'stroke-width':'2','marker-end':mk(col)},SVG);
+}
+
+// ── Tooltip ──
 function showTip(e,d){
-  const users=d.users||[{name:d.name,role:d.role||d.role_name,
-    color:d.color,status_text:d.status_text}];
-  TIP.innerHTML='<div class="tip-role">'+(d.role_name||d.role||'')+'</div>'+
-    users.map(u=>'<div class="tip-user"><svg width="9" height="9" style="flex-shrink:0">'+
-      '<circle cx="4.5" cy="4.5" r="4.5" fill="'+(C[u.color]||C.gray)+'"/></svg> '+
-      u.name+'<span style="color:var(--muted2);font-size:9px;margin-right:4px">('+
-      (u.role||'')+')</span></div>').join('')+
-    (d.date?'<div class="tip-date">'+d.date+'</div>':'')+
-    '<span class="tip-badge '+d.color+'">'+d.status_text+'</span>';
+  const users=d.users||[{name:d.name,role:d.role||d.role_name,color:d.color,status_text:d.status_text}];
+  TIP.innerHTML=`<div class="tip-role">${d.role_name||d.role||''}</div>
+    ${users.map(u=>`<div class="tip-user"><svg width="9" height="9" style="flex-shrink:0"><circle cx="4.5" cy="4.5" r="4.5" fill="${C[u.color]||C.gray}"/></svg>
+      ${u.name}<span style="color:var(--muted2);font-size:9px;margin-right:4px">(${u.role||''})</span></div>`).join('')}
+    ${d.date?`<div class="tip-date">${d.date}</div>`:''}
+    <span class="tip-badge ${d.color}">${d.status_text}</span>`;
   TIP.classList.add('on'); mv(e);
 }
 function memTip(e,m){
-  TIP.innerHTML='<div class="tip-role">'+m.name+'</div>'+
-    '<div class="tip-user"><i class="fas fa-id-badge" style="font-size:9px;color:#636c76"></i> '+m.role+'</div>'+
-    (m.date?'<div class="tip-date">'+m.date+'</div>':'')+
-    '<span class="tip-badge '+m.color+'">'+m.status_text+'</span>';
+  TIP.innerHTML=`<div class="tip-role">${m.name}</div>
+    <div class="tip-user"><i class="fas fa-id-badge" style="font-size:9px;color:#768390"></i> ${m.role}</div>
+    ${m.date?`<div class="tip-date">${m.date}</div>`:''}
+    <span class="tip-badge ${m.color}">${m.status_text}</span>`;
   TIP.classList.add('on'); mv(e);
 }
 function mv(e){TIP.style.left=(e.clientX+14)+'px';TIP.style.top=(e.clientY-8)+'px';}
 function hideTip(){TIP.classList.remove('on');}
 
+// ── Reminder ──
 window.openR=(uid,uname)=>{
   document.getElementById('rUid').value=uid;
   document.getElementById('rName').textContent=uname;
   document.getElementById('rModal').classList.add('on');
 };
 window.closeR=()=>document.getElementById('rModal').classList.remove('on');
-document.getElementById('rModal').addEventListener('click',e=>{
-  if(e.target.id==='rModal')closeR();
-});
+document.getElementById('rModal').addEventListener('click',e=>{if(e.target.id==='rModal')closeR();});
 
-// ── إرسال التذكير ──
-window.sendR=async()=>{
-  const uid = document.getElementById('rUid').value;
-  const doc = document.getElementById('rDoc').value;
-  const msg = document.getElementById('rMsg').value.trim();
-  const btn = document.querySelector('#rModal .btn-send');
-  btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> جاري الإرسال...';
-  try {
-    const fd = new FormData();
-    fd.append('user_id', uid);
-    fd.append('document_id', doc);
-    fd.append('sender_id', document.getElementById('rSender').value);
-    if(msg) fd.append('message', msg);
-    const res = await fetch('../documents/send_reminder.php', {method:'POST', body:fd});
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); }
-    catch(je) {
-      showToast('خطأ في الخادم: ' + text.substring(0,120), 'error');
-      return;
-    }
-    if(data.success) {
-      closeR();
-      document.getElementById('rMsg').value='';
-    }
-    showToast(data.message, data.success ? 'success' : 'error');
-  } catch(e) {
-    showToast('تعذّر الوصول إلى الخادم: ' + e.message, 'error');
-  } finally {
-    btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> إرسال';
-  }
-};
-
-// ── Toast ──
-function showToast(msg, type='success'){
-  const t=document.createElement('div');
-  t.style.cssText=`position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
-    background:${type==='success'?'#1a7f37':'#cf222e'};color:#fff;padding:12px 24px;
-    border-radius:8px;font-family:Cairo,sans-serif;font-size:.9rem;font-weight:600;
-    z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,.25);direction:rtl;`;
-  t.textContent=msg;
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(),3500);
-}
-
-const DCOLS=['#0969da','#1a7f37','#8250df','#9a6700','#cf222e','#0a7d8c','#bc4c00'];
+// ── Dept colours ──
+const DCOLS=['#388bfd','#57ab5a','#b083f0','#e3b341','#e5534b','#3bc9db','#f0883e'];
 const dc=i=>DCOLS[i%DCOLS.length];
 
-// ══════════════════════════════════════════
-//  DRAW
-// ══════════════════════════════════════════
+// ══════════════════ DRAW ══════════════════
 function draw(){
   SVG.innerHTML='';
-  const R=L.R;
 
-  const depts=DEPT_GROUPS.map((dg,i)=>({
-    ...dg, col:dc(i), boxH:dg.members.length*L.rowH
-  }));
-
-  const COL0 = L.padL + R;              // أعضاء الإدارة
-  const COL1 = COL0 + R + L.colW;       // الديوان الخاص
-  const COL2 = COL1 + R + L.colW;       // بداية سلسلة الديوان
-
+  // ── Layout: dept boxes ──
+  const depts=DEPT_GROUPS.map((dg,i)=>({...dg,col:dc(i),boxH:L.deptHdrH+dg.members.length*L.rowH}));
   let cy=L.padT;
-  depts.forEach(d=>{ d.y=cy; cy+=d.boxH+L.deptGap; });
+  depts.forEach(d=>{d.y=cy; d.midY=cy+d.boxH/2; cy+=d.boxH+L.deptGap;});
+  const totalH=cy-L.deptGap;
 
-  const orphans = typeof ORPHAN_PB !== 'undefined' ? ORPHAN_PB : [];
-  let oCy=cy;
-  orphans.forEach(pb=>{ pb._cy=oCy+R; oCy+=R*2+L.deptGap*0.5; });
+  // ── private_board centre ──
+  const PRIV_X = L.padL + L.deptW + L.gapX;
+  const PRIV_Y = L.padT + (totalH - L.padT) / 2;
 
-  const totalH=Math.max(cy-L.deptGap, oCy);
-  const CHAIN_Y=L.padT+(totalH-L.padT)/2;
+  // ── other board nodes ──
+  const privNode  = BOARD_NODES.find(b=>b.role_key==='private_board');
+  const restBoard = BOARD_NODES.filter(b=>b.role_key!=='private_board');
+  restBoard.forEach((b,i)=>{b._cx=PRIV_X+L.privR+L.boardStepX*(i+1); b._cy=PRIV_Y;});
 
-  BOARD_NODES.forEach((b,i)=>{ b._cx=COL2+i*L.boardStepX; b._cy=CHAIN_Y; });
-
-  const lastCX=BOARD_NODES.length
-    ? BOARD_NODES[BOARD_NODES.length-1]._cx+R+80 : COL2+R+80;
-  const svgW=Math.max(lastCX,COL2+R+80);
-  const svgH=Math.max(totalH+80,CHAIN_Y+R+80);
-  SVG.setAttribute('viewBox','0 0 '+svgW+' '+svgH);
+  // ── SVG size ──
+  const svgW=Math.max(
+    L.padL+L.deptW+L.gapX+L.privR*2+100,
+    restBoard.length ? restBoard[restBoard.length-1]._cx+L.boardR+100 : PRIV_X+100
+  );
+  const svgH=Math.max(totalH+60, PRIV_Y+L.privR+60);
+  SVG.setAttribute('viewBox',`0 0 ${svgW} ${svgH}`);
   SVG.setAttribute('height',svgH);
   SVG.style.minWidth=svgW+'px';
 
-  // ── 1. دوائر الإدارات ──
-  depts.forEach((dg,di)=>drawDeptGroup(dg,di,COL0,COL1));
+  // ═══ 1. خط مسار الديوان الأفقي ═══
+  if(restBoard.length>0){
+    el('line',{
+      x1:PRIV_X+L.privR+8, y1:PRIV_Y,
+      x2:restBoard[restBoard.length-1]._cx-L.boardR-8, y2:PRIV_Y,
+      stroke:'#b083f0','stroke-width':'2.5','stroke-dasharray':'7,3'
+    },SVG);
+  }
 
-  // ── 2. الدواوين الخاصة اليتيمة ──
-  orphans.forEach(pb=>drawPrivCircle(COL1,pb._cy,pb,R));
-
-  // ── 3. سلسلة الديوان ──
-  BOARD_NODES.forEach((b,i)=>drawChainCircle(b._cx,b._cy,b,R));
-
-  // ── 4. كل الأسهم آخراً (فوق كل شيء) ──
-
-  // 4a. أسهم أعضاء الإدارة ↔ الديوان الخاص
+  // ═══ 2. أسهم النجمة: الديوان الخاص ← → كل عضو ═══
+  // الأسهم تنطلق من دائرة الديوان الخاص إلى النقطة الوسطى لكل صف
   depts.forEach(dg=>{
-    const pb  = dg.private_board;
-    if(!pb) return;
-    const pbY = dg.y + dg.boxH/2;
-    const pbL = COL1 - R;  // يسار الديوان الخاص
-    const pbR = COL1 + R;  // يمين الديوان الخاص
-
     dg.members.forEach((m,mi)=>{
-      // لا أسهم لمن لم يصله المستند أبداً
-      if(!m.received) return;
+      // Y لمنتصف صف العضو
+      const rowMidY = dg.y + L.deptHdrH + mi*L.rowH + L.rowH/2;
+      // نقطة اتصال الصندوق (حافة يمين الصندوق، مستوى الصف)
+      const connX = L.padL + L.deptW + 3;
 
-      const mcy    = dg.y + mi*L.rowH + L.rowH/2;
-      const mRight = COL0 + R;
-      const dy     = mcy - pbY;
-      const bend   = Math.max(22, Math.abs(dy)*0.2);
-      const s      = dy>=0 ? -1 : 1;
+      // الأسهم المنفصلة لأعلى/أسفل لتمييز الإرسال والاستقبال
+      // إرسال: الديوان الخاص → العضو  (ينحني لأعلى قليلاً)
+      arc(PRIV_X-L.privR-4, PRIV_Y, connX, rowMidY, C.blue, -20);
+      // استقبال: العضو → الديوان الخاص  (ينحني لأسفل قليلاً)
+      arc(connX, rowMidY, PRIV_X-L.privR-4, PRIV_Y, C.green, +20);
 
-      // سهم الإرسال دائماً: الديوان ← العضو (منقط أزرق)
-      arrow(pbL, pbY, mRight, mcy, C.blue, true, s*bend);
-
-      // سهم الرد: العضو → الديوان
-      // يظهر فقط إذا أرسل العضو شيئاً فعلاً (last_action موجود)
-      const act = m.last_action;
-      if(act){
-        const retCol = act==='approve' ? C.green
-                     : act==='reject'  ? C.red
-                     : C.orange;  // complete أو أي action آخر = برتقالي (انتظار استكمال)
-        arrow(mRight, mcy, pbL, pbY, retCol, false, -s*bend);
-      }
+      // رقم التسلسل على منتصف كل زوج أسهم
+      const lx=(PRIV_X-L.privR-4+connX)/2, ly=rowMidY-22;
+      el('circle',{cx:lx,cy:ly,r:10,fill:'#21262d',stroke:'#3d444d','stroke-width':'1'},SVG);
+      const nt=el('text',{x:lx,y:ly+4,'text-anchor':'middle',fill:C[m.color]||C.gray,
+        'font-size':'10','font-family':'Cairo,sans-serif','font-weight':'700','pointer-events':'none'},SVG);
+      nt.textContent=String(mi+1);
     });
-
-    // 4b. الديوان الخاص ↔ الديوان الفرعي
-    if(BOARD_NODES.length>0){
-      const sub  = BOARD_NODES[0];
-      const subL = sub._cx - R;
-      const dy2  = pbY - CHAIN_Y;
-      const bend2= Math.max(20, Math.abs(dy2)*0.18);
-      const s2   = dy2>=0 ? 1 : -1;
-
-      // سهم الإرسال: الديوان الخاص → الفرعي (منقط أزرق) إذا أرسل الديوان الخاص
-      if(pb.last_action)
-        arrow(pbR, pbY, subL, CHAIN_Y, C.blue, true, s2*bend2);
-
-      // سهم الرد: الفرعي → الديوان الخاص بلون حسب last_action الفرعي
-      if(sub.last_action){
-        const retCol = sub.last_action==='approve' ? C.green
-                     : sub.last_action==='reject'  ? C.red
-                     : C.yellow;
-        arrow(subL, CHAIN_Y, pbR, pbY, retCol, false, -s2*bend2);
-      }
-    }
   });
 
-  // 4c. أسهم الدواوين اليتيمة ↔ السلسلة
-  orphans.forEach(pb=>{
-    if(BOARD_NODES.length===0) return;
-    const sub  = BOARD_NODES[0];
-    const subL = sub._cx - R;
-    const dy2  = pb._cy - CHAIN_Y;
-    const bend2= Math.max(20, Math.abs(dy2)*0.18);
-    const s2   = dy2>=0 ? 1 : -1;
+  // ═══ 3. صناديق الإدارة ═══
+  depts.forEach((dg,di)=>drawDept(dg,di));
 
-    if(pb.last_action)
-      arrow(COL1+R, pb._cy, subL, CHAIN_Y, C.blue, true, s2*bend2);
+  // ═══ 4. دائرة الديوان الخاص ═══
+  drawCircle(PRIV_X, PRIV_Y, privNode||{role_name:'الديوان الخاص',color:'gray',status_text:'بانتظار',date:'',users:[],name:''}, L.privR, true);
 
-    if(sub.last_action){
-      const retCol = sub.last_action==='approve' ? C.green
-                   : sub.last_action==='reject'  ? C.red
-                   : C.yellow;
-      arrow(subL, CHAIN_Y, COL1+R, pb._cy, retCol, false, -s2*bend2);
-    }
+  // ═══ 5. باقي دوائر الديوان ═══
+  restBoard.forEach((b,i)=>{
+    const prevX=i===0?PRIV_X+L.privR:restBoard[i-1]._cx+L.boardR;
+    sarrow(prevX+6,PRIV_Y,b._cx-L.boardR-4,b._cy,'#b083f0');
+    drawCircle(b._cx,b._cy,b,L.boardR,false);
   });
 
-  // 4d. أسهم بين عقد سلسلة الديوان (sub→board→...)
-  for(let i=1;i<BOARD_NODES.length;i++){
-    const prev = BOARD_NODES[i-1];
-    const curr = BOARD_NODES[i];
-    const bend = 22;
-
-    // إرسال: السابق → الحالي إذا أرسل السابق شيئاً
-    if(prev.last_action)
-      arrow(prev._cx+R, CHAIN_Y, curr._cx-R, CHAIN_Y, C.blue, true, -bend);
-
-    // رد: الحالي → السابق بلون حسب last_action الحالي
-    if(curr.last_action){
-      const retCol = curr.last_action==='approve' ? C.green
-                   : curr.last_action==='reject'  ? C.red
-                   : C.yellow;
-      arrow(curr._cx-R, CHAIN_Y, prev._cx+R, CHAIN_Y, retCol, false, +bend);
-    }
-  }
+  // ═══ تسميات المسارات ═══
+  if(depts.length>0)
+    txt(L.padL+L.deptW/2, L.padT-16, 'الإدارات', '#768390', 10, 'middle','700');
+  txt(PRIV_X, PRIV_Y-L.privR-18, 'الديوان الخاص', '#b083f0', 10, 'middle','700');
+  if(restBoard.length>0)
+    txt(PRIV_X+L.privR+(restBoard[restBoard.length-1]._cx-PRIV_X-L.privR)/2,
+        PRIV_Y-L.boardR-20,'مسار الديوان','#b083f0',10,'middle','700');
 }
 
-// ══════════════════════════════════════════
-//  drawDeptGroup
-// ══════════════════════════════════════════
-function drawDeptGroup(dg,di,cx0,cx1){
-  const R=L.R, col=dg.col;
+// ══════════ drawDept ══════════
+function drawDept(dg,di){
+  const x=L.padL, y=dg.y, w=L.deptW, h=dg.boxH, col=dg.col;
 
-  // دوائر الأعضاء (بدون نص)
+  // ظل
+  el('rect',{x:x+3,y:y+3,width:w,height:h,rx:9,fill:'#00000055'},SVG);
+  // شريط جانبي ملون
+  el('rect',{x:x-5,y:y+9,width:5,height:h-18,rx:3,fill:col},SVG);
+  // الإطار
+  el('rect',{x,y,width:w,height:h,rx:9,fill:'#21262d',stroke:col+'55','stroke-width':'1.5'},SVG);
+  // رأس الصندوق - خلفية
+  el('rect',{x,y,width:w,height:L.deptHdrH,rx:9,fill:col+'28'},SVG);
+  el('rect',{x,y:y+9,width:w,height:L.deptHdrH-9,fill:col+'28'},SVG);
+
+  // أيقونة دائرة + اسم الإدارة
+  el('circle',{cx:x+15,cy:y+L.deptHdrH/2,r:5,fill:col},SVG);
+  const ht=el('text',{x:x+27,y:y+L.deptHdrH/2+4.5,'text-anchor':'start',fill:'#ffffff',
+    'font-size':'12','font-family':'Cairo,sans-serif','font-weight':'700','pointer-events':'none'},SVG);
+  ht.textContent=dg.name;
+
+  // الأعضاء
   dg.members.forEach((m,mi)=>{
-    const mcy=dg.y+mi*L.rowH+L.rowH/2;
-    drawMemberCircle(m,mi,cx0,mcy);
+    const ry=y+L.deptHdrH+mi*L.rowH;
+    const midY=ry+L.rowH/2;
+
+    // خط فاصل
+    el('line',{x1:x+8,y1:ry,x2:x+w-8,y2:ry,stroke:'#2d333b','stroke-width':'1'},SVG);
+
+    // رقم التسلسل داخل الصندوق
+    el('circle',{cx:x+18,cy:midY,r:11,fill:'#2d333b',stroke:'#3d444d','stroke-width':'1'},SVG);
+    const nt=el('text',{x:x+18,y:midY+4.5,'text-anchor':'middle',fill:C[m.color]||C.gray,
+      'font-size':'10','font-family':'Cairo,sans-serif','font-weight':'800','pointer-events':'none'},SVG);
+    nt.textContent=String(mi+1);
+
+    // نقطة الحالة على اليمين
+    const dot=el('circle',{cx:x+w-16,cy:midY,r:8,fill:C[m.color]||C.gray,cursor:'pointer'},SVG);
+    if(m.color==='blue') dot.style.animation='pulse 1.9s ease-in-out infinite';
+
+    // checkmark داخل النقطة
+    const ic={green:'✓',red:'✕',blue:'●',orange:'◷',gray:'○'}[m.color]||'○';
+    el('text',{x:x+w-16,y:midY+4,'text-anchor':'middle',fill:'#fff',
+      'font-size':'9','font-family':'Cairo,sans-serif','pointer-events':'none'},SVG).textContent=ic;
+
+    // نقطة اتصال الحافة (للأسهم)
+    el('circle',{cx:x+w,cy:midY,r:3,fill:'#3d444d'},SVG);
+
+    // اسم + دور
+    el('text',{x:x+35,y:midY-4,'text-anchor':'start',fill:'#cdd9e5',
+      'font-size':'11','font-family':'Cairo,sans-serif','font-weight':'600','pointer-events':'none'},SVG).textContent=m.name;
+    el('text',{x:x+35,y:midY+12,'text-anchor':'start',fill:'#768390',
+      'font-size':'9','font-family':'Cairo,sans-serif','pointer-events':'none'},SVG).textContent=m.role;
+
+    // hover zone + events
+    const hz=el('rect',{x,y:ry,width:w,height:L.rowH,fill:'transparent',cursor:'pointer'},SVG);
+    hz.addEventListener('mouseenter',e=>memTip(e,m));
+    hz.addEventListener('mousemove', e=>mv(e));
+    hz.addEventListener('mouseleave',hideTip);
+    if(m.color==='blue'&&m.user_id)
+      hz.addEventListener('click',()=>openR(m.user_id,m.name));
   });
-
-  // الديوان الخاص (بدون نص)
-  const pb=dg.private_board;
-  const pbY=dg.y+dg.boxH/2;
-  if(pb){
-    drawPrivCircle(cx1,pbY,pb,R);
-  } else {
-    el('circle',{cx:cx1,cy:pbY,r:R,fill:'none',
-      stroke:BG.border,'stroke-width':'1.5','stroke-dasharray':'5,3'},SVG);
-    el('text',{x:cx1,y:pbY+6,'text-anchor':'middle',fill:BG.muted,
-      'font-size':'18','pointer-events':'none'},SVG).textContent='?';
-  }
 }
 
-// ── دائرة عضو ──
-function drawMemberCircle(m,mi,cx,mcy){
-  const R=L.R, cc=C[m.color]||C.gray;
-  el('circle',{cx,cy:mcy,r:R+8,fill:cc,opacity:'0.07'},SVG);
-  el('circle',{cx,cy:mcy,r:R+4,fill:'none',stroke:cc,'stroke-width':'1',opacity:'0.3'},SVG);
-  const c=el('circle',{cx,cy:mcy,r:R,fill:cc,cursor:'pointer'},SVG);
-  if(m.color==='blue')c.style.animation='pulse 1.9s ease-in-out infinite';
-  const ic={green:'\u2713',red:'\u2715',blue:'\u25c9',orange:'\u25f7',gray:'\u25cb'}[m.color]||'\u25cb';
-  el('text',{x:cx,y:mcy+5.5,'text-anchor':'middle',fill:'#fff',
-    'font-size':'14','font-family':'Cairo,sans-serif',
-    'font-weight':'700','pointer-events':'none'},SVG).textContent=ic;
-  // رقم التسلسل فقط
-  const nx=cx-R+6,ny=mcy-R+6;
-  el('circle',{cx:nx,cy:ny,r:10,fill:BG.card,stroke:BG.border,'stroke-width':'1'},SVG);
-  el('text',{x:nx,y:ny+4.5,'text-anchor':'middle',fill:cc,
-    'font-size':'9','font-family':'Cairo,sans-serif',
-    'font-weight':'800','pointer-events':'none'},SVG).textContent=String(mi+1);
-  const hz=el('circle',{cx,cy:mcy,r:R,fill:'transparent',cursor:'pointer'},SVG);
-  hz.addEventListener('mouseenter',e=>memTip(e,m));
-  hz.addEventListener('mousemove', e=>mv(e));
-  hz.addEventListener('mouseleave',hideTip);
-  if(m.color==='blue'&&m.user_id)
-    hz.addEventListener('click',()=>openR(m.user_id,m.name));
-}
-
-// ── دائرة الديوان الخاص ──
-function drawPrivCircle(cx,cy,node,r){
+// ══════════ drawCircle ══════════
+function drawCircle(cx,cy,node,r,isPriv){
   const col=C[node.color]||C.gray;
-  el('circle',{cx,cy,r:r+10,fill:col,opacity:'0.07'},SVG);
-  el('circle',{cx,cy,r:r+5,fill:'none',stroke:'#8250df','stroke-width':'1.5',opacity:'0.5'},SVG);
-  const c=el('circle',{cx,cy,r,fill:col,cursor:'pointer'},SVG);
-  if(node.color==='blue')c.style.animation='pulse 1.9s ease-in-out infinite';
-  const ic={green:'\u2713',red:'\u2715',blue:'\u25c9',orange:'\u25f7',gray:'\u25cb'}[node.color]||'\u25cb';
-  el('text',{x:cx,y:cy+6,'text-anchor':'middle',fill:'#fff',
-    'font-size':'14','font-family':'Cairo,sans-serif',
-    'font-weight':'700','pointer-events':'none'},SVG).textContent=ic;
-  const nd={...node,role_name:'الديوان الخاص',users:node.users||
-    [{name:node.name,role:'الديوان الخاص',color:node.color,status_text:node.status_text}]};
-  c.addEventListener('mouseenter',e=>showTip(e,nd));
-  c.addEventListener('mousemove', e=>mv(e));
-  c.addEventListener('mouseleave',hideTip);
-  if(node.color==='blue'&&node.user_id)
-    c.addEventListener('click',()=>openR(node.user_id,node.name));
-}
+  const ring=isPriv?'#b083f0':'#7b5af0';
 
-// ── دائرة سلسلة الديوان ──
-function drawChainCircle(cx,cy,node,r){
-  const col=C[node.color]||C.gray;
-  el('circle',{cx,cy,r:r+10,fill:col,opacity:'0.07'},SVG);
-  el('circle',{cx,cy,r:r+5,fill:'none',stroke:'#8250df','stroke-width':'1.5',opacity:'0.5'},SVG);
+  // حلقات الهالة
+  el('circle',{cx,cy,r:r+10,fill:col,opacity:'0.08'},SVG);
+  el('circle',{cx,cy,r:r+5, fill:'none',stroke:ring,'stroke-width':'1.5',opacity:'0.5'},SVG);
+  // الدائرة الرئيسية
   const c=el('circle',{cx,cy,r,fill:col,cursor:'pointer'},SVG);
-  if(node.color==='blue')c.style.animation='pulse 1.9s ease-in-out infinite';
-  const ic={green:'\u2713',red:'\u2715',blue:'\u25c9',orange:'\u25f7',gray:'\u25cb'}[node.color]||'\u25cb';
-  el('text',{x:cx,y:cy+6,'text-anchor':'middle',fill:'#fff',
-    'font-size':'14','font-family':'Cairo,sans-serif',
-    'font-weight':'700','pointer-events':'none'},SVG).textContent=ic;
+  if(node.color==='blue') c.style.animation='pulse 1.9s ease-in-out infinite';
+
+  // أيقونة
+  const ic={green:'✓',red:'✕',blue:'◉',orange:'◷',gray:'○'}[node.color]||'○';
+  el('text',{x:cx,y:cy+(isPriv?6:5),'text-anchor':'middle',fill:'#fff',
+    'font-size':isPriv?'15':'13','font-family':'Cairo,sans-serif','font-weight':'700',
+    'pointer-events':'none'},SVG).textContent=ic;
+
+  // اسم المستخدم أسفل الدائرة
+  if(node.name)
+    el('text',{x:cx,y:cy+r+15,'text-anchor':'middle',fill:'#545d68',
+      'font-size':'9','font-family':'Cairo,sans-serif','pointer-events':'none'},SVG).textContent=node.name;
+
+  // تفاعل
   c.addEventListener('mouseenter',e=>showTip(e,node));
   c.addEventListener('mousemove', e=>mv(e));
   c.addEventListener('mouseleave',hideTip);
