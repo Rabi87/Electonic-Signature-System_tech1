@@ -1,16 +1,18 @@
 <?php
 /**
- * استعادة مستند من الأرشيف للديوان
+ * استعادة مستند من الأرشيف (حذف من user_archives)
+ * إذا كان آخر مستخدم، يتم حذف الملف المؤرشف أيضاً
  */
 
 require_once '../includes/session.php';
 require_once '../includes/config.php';
 require_once '../includes/database.php';
-require_once 'archive_functions.php'; // الدوال المساعدة
+require_once 'archive_functions.php';
 
 checkLogin();
 
-if (!isset($_SESSION['user_id']) || $_SESSION['role_name'] !== 'board') {
+$allowed_roles = ['board', 'sub_board', 'private_board'];
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_name'], $allowed_roles)) {
     header('HTTP/1.1 403 Forbidden');
     echo json_encode(['success' => false, 'message' => 'غير مصرح']);
     exit();
@@ -32,90 +34,57 @@ if (!$document_id || !is_numeric($document_id)) {
 $db = getDB();
 $user_id = $_SESSION['user_id'];
 
-// التحقق من أن المستند موجود ومؤرشف
-$stmt = $db->prepare("
-    SELECT d.*, u.full_name as creator_name 
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    WHERE d.id = ? AND d.archived = 1
-");
-$stmt->execute([$document_id]);
-$document = $stmt->fetch(PDO::FETCH_ASSOC);
+// التحقق من وجود السجل في أرشيف المستخدم مع جلب مسار الملف المؤرشف
+$checkStmt = $db->prepare("SELECT archived_file_path FROM user_archives WHERE user_id = ? AND document_id = ?");
+$checkStmt->execute([$user_id, $document_id]);
+$archiveRecord = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$document) {
-    echo json_encode(['success' => false, 'message' => 'المستند غير موجود أو لم يتم أرشفته']);
+if (!$archiveRecord) {
+    echo json_encode(['success' => false, 'message' => 'المستند غير موجود في أرشيفك']);
     exit();
 }
 
-// بدء المعاملة
 $db->beginTransaction();
 
 try {
-    $oldFilePath = $document['file_path'] ?? null;
-    $newFilePath = null;
-    
-    // إذا كان هناك ملف مرفق
-    if (!empty($document['file_path'])) {
-        $currentPath = '../' . $document['file_path'];
-        
-        // إذا كان الملف في الأرشيف
-        if (isFileInArchive($document['file_path']) && file_exists($currentPath)) {
-            // نقل الملف من الأرشيف إلى المجلد الأصلي
-            $moveResult = moveFileFromArchive($currentPath);
-            
-            if (!$moveResult['success']) {
-                throw new Exception($moveResult['message']);
-            }
-            
-            // تحديث مسار الملف
-            $newFilePath = $moveResult['path'];
-            $updateFileStmt = $db->prepare("UPDATE documents SET file_path = ? WHERE id = ?");
-            $updateFileStmt->execute([$newFilePath, $document_id]);
-        }
-        // إذا كان الملف ليس في الأرشيف (حالة غريبة)
-        else {
-            // نترك الملف في مكانه الحالي
-            $newFilePath = $document['file_path'];
-        }
+    // حذف السجل من user_archives
+    $deleteStmt = $db->prepare("DELETE FROM user_archives WHERE user_id = ? AND document_id = ?");
+    $deleteStmt->execute([$user_id, $document_id]);
+
+    // التحقق من وجود مستخدمين آخرين أرشفوا نفس المستند
+    $checkOthers = $db->prepare("SELECT COUNT(*) as count FROM user_archives WHERE document_id = ?");
+    $checkOthers->execute([$document_id]);
+    $othersCount = $checkOthers->fetch(PDO::FETCH_ASSOC)['count'];
+
+    $fileDeleted = false;
+    if ($othersCount == 0 && !empty($archiveRecord['archived_file_path'])) {
+        // لا يوجد مستخدم آخر، يمكن حذف الملف المؤرشف
+        $fileDeleted = deleteArchiveFile($archiveRecord['archived_file_path']);
     }
-    
-    // تحديث حالة الأرشيف
-    $updateStmt = $db->prepare("UPDATE documents SET archived = 0, archived_at = NULL WHERE id = ?");
-    $updateStmt->execute([$document_id]);
-    
-    // تسجيل العملية
+
+    // تسجيل العملية في archive_logs
     $logStmt = $db->prepare("
-        INSERT INTO archive_logs (document_id, user_id, action, old_path, new_path, priority, archived_at)
-        VALUES (?, ?, 'restore', ?, ?, ?, NOW())
+        INSERT INTO archive_logs (document_id, user_id, action, priority, archived_at)
+        VALUES (?, ?, 'restore', NULL, NOW())
     ");
-    $logStmt->execute([
-        $document_id,
-        $user_id,
-        $oldFilePath ?? null,
-        $newFilePath ?? null,
-        $document['priority'] ?? 'normal'
-    ]);
-    
-    // تأكيد المعاملة
+    $logStmt->execute([$document_id, $user_id]);
+
     $db->commit();
-    
+
+    $message = 'تمت إزالة المستند من أرشيفك';
+    if ($fileDeleted) {
+        $message .= ' وتم حذف الملف المؤرشف نهائياً';
+    }
+
     echo json_encode([
-        'success' => true, 
-        'message' => 'تمت استعادة المستند بنجاح',
-        'document' => [
-            'id' => $document['id'],
-            'title' => $document['title'],
-            'file_path' => $newFilePath ?? $oldFilePath
-        ]
+        'success' => true,
+        'message' => $message
     ]);
-    
 } catch (Exception $e) {
-    // إرجاع المعاملة في حالة خطأ
     $db->rollBack();
-    
     echo json_encode([
-        'success' => false, 
-        'message' => 'فشل في استعادة المستند: ' . $e->getMessage()
+        'success' => false,
+        'message' => 'فشل في الاستعادة: ' . $e->getMessage()
     ]);
 }
 ?>

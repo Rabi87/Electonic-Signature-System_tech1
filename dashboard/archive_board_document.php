@@ -1,16 +1,17 @@
 <?php
 /**
- * أرشفة مستند للديوان مع تصنيف حسب الأولوية
+ * أرشفة مستند - نسخة مبسطة للتشخيص
  */
 
 require_once '../includes/session.php';
 require_once '../includes/config.php';
 require_once '../includes/database.php';
-require_once 'archive_functions.php'; // الدوال المساعدة
+require_once 'archive_functions.php';
 
 checkLogin();
 
-if (!isset($_SESSION['user_id']) || strpos($_SESSION['role_name'], 'board') === false) {
+$allowed_roles = ['board', 'sub_board', 'private_board'];
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_name'], $allowed_roles)) {
     header('HTTP/1.1 403 Forbidden');
     echo json_encode(['success' => false, 'message' => 'غير مصرح']);
     exit();
@@ -33,18 +34,13 @@ if (!$document_id || !is_numeric($document_id)) {
 $db = getDB();
 $user_id = $_SESSION['user_id'];
 
-// التحقق من أن المستند موجود وغير مؤرشف
-$stmt = $db->prepare("
-    SELECT d.*, u.full_name as creator_name 
-    FROM documents d
-    LEFT JOIN users u ON d.created_by = u.id
-    WHERE d.id = ? AND d.archived = 0
-");
+// التحقق من وجود المستند
+$stmt = $db->prepare("SELECT id, title, file_path FROM documents WHERE id = ?");
 $stmt->execute([$document_id]);
 $document = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$document) {
-    echo json_encode(['success' => false, 'message' => 'المستند غير موجود أو تم أرشفته مسبقاً']);
+    echo json_encode(['success' => false, 'message' => 'المستند غير موجود']);
     exit();
 }
 
@@ -52,37 +48,42 @@ if (!$document) {
 $db->beginTransaction();
 
 try {
-    // إذا كان هناك ملف مرفق
+    $archivedFilePath = null;
+
+    // محاولة نسخ الملف إذا كان موجوداً (لكن لا نمنع الإدراج إذا فشل)
     if (!empty($document['file_path'])) {
         $currentPath = '../' . $document['file_path'];
-        $oldFilePath = $document['file_path'];
-        
-        // إذا كان الملف في المجلد الأصلي (ليس في الأرشيف)
-        if (file_exists($currentPath) && !isFileInArchive($document['file_path'])) {
-            // نقل الملف إلى الأرشيف
-            $moveResult = moveFileToArchive($currentPath, $priority);
-            
-            if (!$moveResult['success']) {
-                throw new Exception($moveResult['message']);
+        if (file_exists($currentPath)) {
+            $copyResult = copyFileToArchive($currentPath, $priority);
+            if ($copyResult['success']) {
+                $archivedFilePath = $copyResult['path'];
+            } else {
+                // سجل الخطأ لكن استمر في الإدراج
+                error_log("فشل نسخ الملف للمستند $document_id: " . $copyResult['message']);
             }
-            
-            // تحديث مسار الملف في قاعدة البيانات
-            $newFilePath = $moveResult['path'];
-            $updateFileStmt = $db->prepare("UPDATE documents SET file_path = ? WHERE id = ?");
-            $updateFileStmt->execute([$newFilePath, $document_id]);
-        }
-        // إذا كان الملف بالفعل في الأرشيف (حالة إعادة الأرشفة بعد الاسترجاع الفاشل)
-        else if (isFileInArchive($document['file_path'])) {
-            // لا نحتاج لنقل الملف، فقط نحدث الأولوية إذا تغيرت
-            $newFilePath = $document['file_path'];
+        } else {
+            error_log("الملف الأصلي غير موجود: $currentPath");
         }
     }
-    
-    // تحديث حالة الأرشيف
-    $updateStmt = $db->prepare("UPDATE documents SET archived = 1, archived_at = NOW() WHERE id = ?");
-    $updateStmt->execute([$document_id]);
-    
-    // تسجيل العملية
+
+    // إدراج سجل في user_archives (حتى لو كان الملف غير موجود)
+    $insertStmt = $db->prepare("
+        INSERT INTO user_archives (user_id, document_id, priority, archived_file_path, archived_at)
+        VALUES (:user_id, :doc_id, :priority, :archived_path, NOW())
+    ");
+    $insertResult = $insertStmt->execute([
+        ':user_id' => $user_id,
+        ':doc_id' => $document_id,
+        ':priority' => $priority,
+        ':archived_path' => $archivedFilePath
+    ]);
+
+    if (!$insertResult) {
+        $errorInfo = $insertStmt->errorInfo();
+        throw new Exception("فشل الإدراج في user_archives: " . $errorInfo[2]);
+    }
+
+    // تسجيل العملية في archive_logs (اختياري)
     $logStmt = $db->prepare("
         INSERT INTO archive_logs (document_id, user_id, action, old_path, new_path, priority, archived_at)
         VALUES (?, ?, 'archive', ?, ?, ?, NOW())
@@ -90,31 +91,26 @@ try {
     $logStmt->execute([
         $document_id,
         $user_id,
-        $oldFilePath ?? null,
-        $newFilePath ?? null,
+        $document['file_path'] ?? null,
+        $archivedFilePath,
         $priority
     ]);
-    
-    // تأكيد المعاملة
+
     $db->commit();
-    
+
     echo json_encode([
-        'success' => true, 
-        'message' => 'تم أرشفة المستند بنجاح',
+        'success' => true,
+        'message' => 'تمت إضافة المستند إلى أرشيفك الشخصي',
         'document' => [
             'id' => $document['id'],
-            'title' => $document['title'],
-            'priority' => $priority
+            'title' => $document['title']
         ]
     ]);
-    
 } catch (Exception $e) {
-    // إرجاع المعاملة في حالة خطأ
     $db->rollBack();
-    
     echo json_encode([
-        'success' => false, 
-        'message' => 'فشل في أرشفة المستند: ' . $e->getMessage()
+        'success' => false,
+        'message' => 'فشل في الأرشفة: ' . $e->getMessage()
     ]);
 }
 ?>

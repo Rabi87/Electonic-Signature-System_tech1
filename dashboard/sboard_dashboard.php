@@ -92,7 +92,8 @@ $where_conditions = [];
 $params = [];
 
 // إزالة شرط استبعاد المستندات المؤرشفة (نعرض جميع المستندات النشطة)
-$where_conditions[] = "d.archived = 0";
+$where_conditions[] = "d.id NOT IN (SELECT document_id FROM user_archives WHERE user_id = :current_user)";
+$params[':current_user'] = $user_id;
 
 // إزالة شرط استبعاد المستندات المرفوضة أو الموافق عليها - الآن نعرض جميع المستندات
 
@@ -335,6 +336,12 @@ $stats_stmt = $db->prepare($stats_query);
 $stats_stmt->execute($stats_params);
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
+// جلب عدد المستندات المؤرشفة للمستخدم
+$archived_count_query = "SELECT COUNT(*) as total FROM user_archives WHERE user_id = :user_id";
+$archived_count_stmt = $db->prepare($archived_count_query);
+$archived_count_stmt->execute([':user_id' => $user_id]);
+$archived_count = $archived_count_stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
+
 // جلب إحصائيات إضافية للديوان
 $additional_stats = $db->prepare("
     SELECT 
@@ -480,11 +487,14 @@ text-decoration: none;">
                         <span id="toggleFiltersText">بحث متقدم</span>
                     </div>
 
-                    <!-- زر الأرشيف -->
+                 <!-- زر الأرشيف -->
                     <div class="circle-filter-container">
-                        <button onclick="showBoardArchiveModal()" class="circle-filter-btn arch">
+                        <a href="board_archive.php" class="circle-filter-btn arch" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-archive"></i>
-                        </button>
+                            <?php if ($archived_count > 0): ?>
+                                <span class="circle-count"><?php echo $archived_count; ?></span>
+                            <?php endif; ?>
+                        </a>
                         <span class="filter-label">عرض الأرشيف</span>
                     </div>
 
@@ -924,6 +934,13 @@ text-decoration: none;">
                                             <i class="fas fa-trash"></i>
                                         </button>
 
+                                        <button onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>', '<?php echo addslashes($doc['title']); ?>')"
+                                            class="employee-btn"
+                                            style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white;"
+                                            title="أرشفة المستند">
+                                            <i class="fas fa-archive"></i>
+                                        </button>
+
 
                                     </div>
                                 </div>
@@ -1172,8 +1189,7 @@ text-decoration: none;">
                                                     </button>
 
 
-                                                    <button
-                                                        onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>')"
+                                                    <button onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>', '<?php echo addslashes($doc['title']); ?>')"
                                                         class="employee-btn"
                                                         style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white;"
                                                         title="أرشفة المستند">
@@ -1381,6 +1397,29 @@ text-decoration: none;">
                     </div>
                     <div class="popup-body">
                         <iframe id="trackIframe"></iframe>
+                    </div>
+                </div>
+            </div>
+
+            <!-- مودال تأكيد الأرشفة -->
+            <div id="archiveConfirmModal" class="modal-overlay" style="display: none;">
+                <div class="modal-content" style="max-width: 450px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">
+                        <h3><i class="fas fa-archive"></i> تأكيد الأرشفة</h3>
+                        <button type="button" onclick="closeArchiveConfirmModal()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 25px; text-align: center;">
+                        <i class="fas fa-question-circle" style="font-size: 4rem; color: #9b59b6; margin-bottom: 15px;"></i>
+                        <p style="font-size: 1.1rem; margin-bottom: 25px; color: #34495e;">هل أنت متأكد من أرشفة هذا المستند؟</p>
+                        <p style="font-size: 0.9rem; color: #7f8c8d; margin-bottom: 20px;" id="archiveDocumentTitle"></p>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="proceedArchive()" class="btnx" style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-check"></i> تأكيد الأرشفة
+                            </button>
+                            <button onclick="closeArchiveConfirmModal()" class="btnx btn-secondary" style="background: #95a5a6; color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-times"></i> إلغاء
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -2,18 +2,24 @@
 // archive_functions.php
 require_once '../includes/database.php';
 
+/**
+ * إرجاع مسار مجلد الأرشيف حسب الأولوية
+ */
 function getArchiveFolder($priority) {
     $folders = [
         'normal' => '../uploads/archive/normal/',
-        'high' => '../uploads/archive/urgent/',
+        'high'   => '../uploads/archive/urgent/',
         'urgent' => '../uploads/archive/secret/'
     ];
     return $folders[$priority] ?? $folders['normal'];
 }
 
-function moveFileToArchive($currentPath, $priority) {
-    if (!file_exists($currentPath)) {
-        return ['success' => false, 'message' => 'الملف غير موجود'];
+/**
+ * نسخ الملف إلى مجلد الأرشيف (مع الاحتفاظ بالأصلي)
+ */
+function copyFileToArchive($sourcePath, $priority) {
+    if (!file_exists($sourcePath)) {
+        return ['success' => false, 'message' => 'الملف الأصلي غير موجود'];
     }
     
     $archiveFolder = getArchiveFolder($priority);
@@ -23,67 +29,39 @@ function moveFileToArchive($currentPath, $priority) {
         mkdir($archiveFolder, 0777, true);
     }
     
-    $filename = basename($currentPath);
-    $newPath = $archiveFolder . $filename;
+    $filename = basename($sourcePath);
+    $destinationPath = $archiveFolder . $filename;
     
-    // التأكد من عدم وجود ملف بنفس الاسم
+    // التأكد من عدم وجود ملف بنفس الاسم في الأرشيف
     $counter = 1;
     $fileInfo = pathinfo($filename);
     $baseName = $fileInfo['filename'];
     $extension = isset($fileInfo['extension']) ? '.' . $fileInfo['extension'] : '';
     
-    while (file_exists($newPath)) {
+    while (file_exists($destinationPath)) {
         $newFilename = $baseName . '_' . $counter . $extension;
-        $newPath = $archiveFolder . $newFilename;
+        $destinationPath = $archiveFolder . $newFilename;
         $counter++;
     }
     
-    // نقل الملف
-    if (rename($currentPath, $newPath)) {
-        $newFilePath = str_replace('../', '', $newPath);
-        return ['success' => true, 'path' => $newFilePath];
+    // نسخ الملف (وليس نقله)
+    if (copy($sourcePath, $destinationPath)) {
+        // تخزين المسار النسبي بدون ../
+        $archivedFilePath = str_replace('../', '', $destinationPath);
+        return ['success' => true, 'path' => $archivedFilePath];
     }
     
-    return ['success' => false, 'message' => 'فشل في نقل الملف'];
+    return ['success' => false, 'message' => 'فشل في نسخ الملف'];
 }
 
-function moveFileFromArchive($currentPath) {
-    if (!file_exists($currentPath)) {
-        return ['success' => false, 'message' => 'الملف غير موجود'];
+/**
+ * حذف ملف مؤرشف
+ */
+function deleteArchiveFile($filePath) {
+    $fullPath = '../' . $filePath;
+    if (file_exists($fullPath)) {
+        return unlink($fullPath);
     }
-    
-    $originalFolder = '../uploads/documents/';
-    
-    // إنشاء المجلد إذا لم يكن موجودًا
-    if (!is_dir($originalFolder)) {
-        mkdir($originalFolder, 0777, true);
-    }
-    
-    $filename = basename($currentPath);
-    $newPath = $originalFolder . $filename;
-    
-    // التأكد من عدم وجود ملف بنفس الاسم
-    $counter = 1;
-    $fileInfo = pathinfo($filename);
-    $baseName = $fileInfo['filename'];
-    $extension = isset($fileInfo['extension']) ? '.' . $fileInfo['extension'] : '';
-    
-    while (file_exists($newPath)) {
-        $newFilename = $baseName . '_' . $counter . $extension;
-        $newPath = $originalFolder . $newFilename;
-        $counter++;
-    }
-    
-    // نقل الملف
-    if (rename($currentPath, $newPath)) {
-        $newFilePath = str_replace('../', '', $newPath);
-        return ['success' => true, 'path' => $newFilePath];
-    }
-    
-    return ['success' => false, 'message' => 'فشل في نقل الملف'];
-}
-
-function isFileInArchive($filePath) {
-    return strpos($filePath, 'uploads/archive/') !== false;
+    return false;
 }
 ?>

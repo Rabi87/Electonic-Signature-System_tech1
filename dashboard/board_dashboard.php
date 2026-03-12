@@ -1,4 +1,5 @@
 <?php
+
 /**
  * لوحة تحكم الديوان (board) - نظام التوقيع الإلكتروني
  * النسخة المعدلة: إظهار جميع المستندات وتعديل نظام الأرشفة
@@ -7,6 +8,7 @@ require_once '../includes/session.php';
 checkLogin();
 require_once '../includes/config.php';
 require_once '../includes/database.php';
+
 $pageTitle = 'لوحة التحكم';
 // التحقق من أن المستخدم مسجل دخول وله دور board
 if (!isset($_SESSION['user_id']) || $_SESSION['role_name'] !== 'board') {
@@ -91,7 +93,8 @@ $where_conditions = [];
 $params = [];
 
 // إزالة شرط استبعاد المستندات المؤرشفة (نعرض جميع المستندات النشطة)
-$where_conditions[] = "d.archived = 0";
+$where_conditions[] = "d.id NOT IN (SELECT document_id FROM user_archives WHERE user_id = :current_user)";
+$params[':current_user'] = $user_id;
 
 // إزالة شرط استبعاد المستندات المرفوضة أو الموافق عليها - الآن نعرض جميع المستندات
 
@@ -334,6 +337,12 @@ $stats_stmt = $db->prepare($stats_query);
 $stats_stmt->execute($stats_params);
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
+// جلب عدد المستندات المؤرشفة للمستخدم
+$archived_count_query = "SELECT COUNT(*) as total FROM user_archives WHERE user_id = :user_id";
+$archived_count_stmt = $db->prepare($archived_count_query);
+$archived_count_stmt->execute([':user_id' => $user_id]);
+$archived_count = $archived_count_stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
+
 // جلب إحصائيات إضافية للديوان
 $additional_stats = $db->prepare("
     SELECT 
@@ -374,6 +383,14 @@ foreach ($archive_folders as $folder) {
         mkdir($folder, 0777, true);
     }
 }
+
+
+// جلب معرفات المستندات الموجودة في أرشيف المستخدم الحالي
+$archivedIdsStmt = $db->prepare("SELECT document_id FROM user_archives WHERE user_id = ?");
+$archivedIdsStmt->execute([$user_id]);
+$archivedIds = $archivedIdsStmt->fetchAll(PDO::FETCH_COLUMN);
+
+
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -481,9 +498,12 @@ text-decoration: none;">
 
                     <!-- زر الأرشيف -->
                     <div class="circle-filter-container">
-                        <button onclick="showBoardArchiveModal()" class="circle-filter-btn arch">
+                        <a href="board_archive.php" class="circle-filter-btn arch" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-archive"></i>
-                        </button>
+                            <?php if ($archived_count > 0): ?>
+                                <span class="circle-count"><?php echo $archived_count; ?></span>
+                            <?php endif; ?>
+                        </a>
                         <span class="filter-label">عرض الأرشيف</span>
                     </div>
 
@@ -725,10 +745,11 @@ text-decoration: none;">
                     <div class="documents-grid">
                         <?php foreach ($documents as $index => $doc):
                             $is_creator = ($doc['created_by'] == $user_id);
+                            $isArchivedByMe = in_array($doc['id'], $archivedIds);
                             $is_assigned = ($doc['current_holder_id'] == $user_id);
                             $user_status = $doc['user_status'] ?? 'pending';
                             $doc_type = ($doc['created_by'] == $user_id) ? 'صادر' : 'وارد';
-                            ?>
+                        ?>
                             <div class="document-card">
                                 <!-- رقعة نوع المستند -->
                                 <div class="type-ribbon <?php echo $doc_type == 'صادر' ? 'outgoing' : 'incoming'; ?>">
@@ -737,14 +758,15 @@ text-decoration: none;">
 
                                 <div class="document-header">
                                     <div class="document-icon">
+                                        <?php if ($isArchivedByMe): ?>
+                                            <span class="archived-badge" title="هذا المستند في أرشيفك الشخصي" style="color: #9b59b6; margin-left: 5px;">
+                                                <i class="fas fa-archive"></i>
+                                            </span>
+                                        <?php endif; ?>
                                         <?php
-                                        if ($doc['priority'] == 'urgent') {
-                                            echo '🔒';
-                                        } elseif ($doc['priority'] == 'high') {
-                                            echo '🔥';
-                                        } else {
-                                            echo '📄';
-                                        }
+                                        if ($doc['priority'] == 'urgent') echo '🔒';
+                                        elseif ($doc['priority'] == 'high') echo '🔥';
+                                        else echo '📄';
                                         ?>
                                     </div>
                                     <h3><?php echo htmlspecialchars($doc['title']); ?></h3>
@@ -922,6 +944,12 @@ text-decoration: none;">
                                             style="background: #e74c3c; color: white;">
                                             <i class="fas fa-trash"></i>
                                         </button>
+                                        <button onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>', '<?php echo addslashes($doc['title']); ?>')"
+                                            class="employee-btn"
+                                            style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white;"
+                                            title="أرشفة المستند">
+                                            <i class="fas fa-archive"></i>
+                                        </button>
 
 
                                     </div>
@@ -982,7 +1010,7 @@ text-decoration: none;">
                                     <tr>
                                         <th>الرقم</th>
                                         <th>المستند</th>
-                                       <!-- <th>القسم</th> -->
+                                        <!-- <th>القسم</th> -->
                                         <th>المرسل</th>
                                         <th>حالتي</th>
                                         <th>الحالة</th>
@@ -993,22 +1021,23 @@ text-decoration: none;">
                                 <tbody>
                                     <?php foreach ($documents as $index => $doc):
                                         $is_creator = ($doc['created_by'] == $user_id);
+                                        $isArchivedByMe = in_array($doc['id'], $archivedIds);
                                         $is_assigned = ($doc['current_holder_id'] == $user_id);
                                         $user_status = $doc['user_status'] ?? 'pending';
                                         $doc_type = ($doc['created_by'] == $user_id) ? 'صادر' : 'وارد';
-                                        ?>
+                                    ?>
                                         <tr class="document-row" data-searchable="<?php echo htmlspecialchars(json_encode([
-                                            'title' => $doc['title'],
-                                            'description' => $doc['description'] ?? '',
-                                            'creator_name' => $doc['creator_name'],
-                                            'job_title' => $doc['job_title'] ?? '',
-                                            'public_number' => $doc['public_number'] ?? '',
-                                            'private_number' => $doc['private_number'] ?? '',
-                                            'current_status' => $doc['current_status'],
-                                            'priority' => $doc['priority'],
-                                            'assigned_to_name' => $doc['assigned_to_name'] ?? '',
-                                            'created_at' => $doc['created_at']
-                                        ]), ENT_QUOTES, 'UTF-8'); ?>">
+                                                                                        'title' => $doc['title'],
+                                                                                        'description' => $doc['description'] ?? '',
+                                                                                        'creator_name' => $doc['creator_name'],
+                                                                                        'job_title' => $doc['job_title'] ?? '',
+                                                                                        'public_number' => $doc['public_number'] ?? '',
+                                                                                        'private_number' => $doc['private_number'] ?? '',
+                                                                                        'current_status' => $doc['current_status'],
+                                                                                        'priority' => $doc['priority'],
+                                                                                        'assigned_to_name' => $doc['assigned_to_name'] ?? '',
+                                                                                        'created_at' => $doc['created_at']
+                                                                                    ]), ENT_QUOTES, 'UTF-8'); ?>">
                                             <td style="text-align: center; vertical-align: middle; padding: 10px 5px;">
                                                 <div
                                                     style="display: flex; flex-direction: column; align-items: right; justify-content: center; min-height: 60px;">
@@ -1038,11 +1067,13 @@ text-decoration: none;">
                                             </td>
 
                                             <td class="document-info-cell">
-                                                <a href="../documents/view_document.php?id=<?php echo $doc['id']; ?>"
-                                                    style="text-decoration: none;">
-                                                    <span class="document-title">
-                                                        <?php echo htmlspecialchars($doc['title']); ?>
-                                                    </span>
+                                                <a href="../documents/view_document.php?id=<?php echo $doc['id']; ?>" style="text-decoration: none;">
+                                                    <?php if ($isArchivedByMe): ?>
+                                                        <span class="archived-badge" title="هذا المستند في أرشيفك الشخصي" style="color: #9b59b6; margin-left: 5px;">
+                                                            <i class="fas fa-archive"></i>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                    <span class="document-title"><?php echo htmlspecialchars($doc['title']); ?></span>
                                                     <?php if ($doc['description']): ?>
                                                         <span class="document-description">
                                                             <?php echo htmlspecialchars(mb_substr($doc['description'], 0, 80, 'UTF-8')); ?>
@@ -1058,7 +1089,7 @@ text-decoration: none;">
                                                 </a>
                                             </td>
 
-                                          <!--  <td class="department-cell">
+                                            <!--  <td class="department-cell">
                                                 <?php echo htmlspecialchars($doc['creator_site'] ?: 'غير معين'); ?>
                                                 <div class="assigned-to-info">
                                                     <strong><?php echo htmlspecialchars($doc['job_title'] ?: 'غير معين'); ?></strong>
@@ -1171,8 +1202,7 @@ text-decoration: none;">
                                                     </button>
 
 
-                                                    <button
-                                                        onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>')"
+                                                    <button onclick="archiveBoardDocument(<?php echo $doc['id']; ?>, '<?php echo $doc['priority']; ?>', '<?php echo addslashes($doc['title']); ?>')"
                                                         class="employee-btn"
                                                         style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white;"
                                                         title="أرشفة المستند">
@@ -1202,7 +1232,7 @@ text-decoration: none;">
                                     $params['page'] = $page_num;
                                     return http_build_query($params);
                                 }
-                                ?>
+                            ?>
                                 <ul class="pagination">
                                     <!-- زر الصفحة السابقة -->
                                     <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
@@ -1300,7 +1330,7 @@ text-decoration: none;">
                                             echo '<optgroup label="' . htmlspecialchars($user['role_name']) . '">';
                                             $current_role = $user['role_name'];
                                         endif;
-                                        ?>
+                                    ?>
                                         <option value="<?php echo $user['id']; ?>">
                                             <?php
                                             echo htmlspecialchars($user['full_name']);
@@ -1415,227 +1445,432 @@ text-decoration: none;">
             </div>
 
             <style>
-            /* ===== نافذة تتبع المسار - تصميم متطور ===== */
-            .track-popup-overlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(5, 10, 30, 0.88);
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
-                z-index: 10000;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                animation: trackOverlayIn 0.3s ease;
-                padding: 15px;
-            }
-            @keyframes trackOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+                /* ===== نافذة تتبع المسار - تصميم متطور ===== */
+                .track-popup-overlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(5, 10, 30, 0.88);
+                    backdrop-filter: blur(10px);
+                    -webkit-backdrop-filter: blur(10px);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    animation: trackOverlayIn 0.3s ease;
+                    padding: 15px;
+                }
 
-            .track-popup-wrapper {
-                position: relative;
-                width: 100%;
-                max-width: 1150px;
-                height: 88vh;
-                animation: trackSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-            }
-            @keyframes trackSlideUp {
-                from { opacity: 0; transform: translateY(60px) scale(0.95); }
-                to   { opacity: 1; transform: translateY(0) scale(1); }
-            }
+                @keyframes trackOverlayIn {
+                    from {
+                        opacity: 0;
+                    }
 
-            .track-popup-glow {
-                position: absolute;
-                inset: -3px;
-                border-radius: 24px;
-                background: linear-gradient(135deg, #441088, #6a1fd0, #2980b9, #441088);
-                background-size: 300% 300%;
-                animation: glowRotate 4s linear infinite;
-                filter: blur(10px);
-                opacity: 0.65;
-                z-index: -1;
-            }
-            @keyframes glowRotate {
-                0%   { background-position: 0% 50%; }
-                50%  { background-position: 100% 50%; }
-                100% { background-position: 0% 50%; }
-            }
+                    to {
+                        opacity: 1;
+                    }
+                }
 
-            .track-popup-container {
-                position: relative;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 40%, #0d1b3e 100%);
-                border-radius: 20px;
-                border: 1px solid rgba(100, 60, 200, 0.35);
-                overflow: hidden;
-                display: flex;
-                flex-direction: column;
-                box-shadow: 0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
-            }
+                .track-popup-wrapper {
+                    position: relative;
+                    width: 100%;
+                    max-width: 1150px;
+                    height: 88vh;
+                    animation: trackSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+                }
 
-            .track-popup-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 18px 25px;
-                background: linear-gradient(135deg, rgba(68,16,136,0.95) 0%, rgba(41,128,185,0.75) 100%);
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-                flex-shrink: 0;
-                position: relative;
-                overflow: hidden;
-            }
-            .track-popup-header::before {
-                content: '';
-                position: absolute;
-                top: -50%; left: -50%;
-                width: 200%; height: 200%;
-                background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.06) 0%, transparent 60%);
-                pointer-events: none;
-            }
+                @keyframes trackSlideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(60px) scale(0.95);
+                    }
 
-            .track-header-left { display: flex; align-items: center; gap: 15px; }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
 
-            .track-icon-badge {
-                width: 48px; height: 48px;
-                border-radius: 14px;
-                background: linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
-                border: 1px solid rgba(255,255,255,0.2);
-                display: flex; align-items: center; justify-content: center;
-                font-size: 1.3rem; color: #fff;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
-                animation: iconPulse 3s ease-in-out infinite;
-            }
-            @keyframes iconPulse {
-                0%, 100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3), 0 0 0 0 rgba(100,60,200,0.4); }
-                50%       { box-shadow: 0 4px 15px rgba(0,0,0,0.3), 0 0 0 10px rgba(100,60,200,0); }
-            }
+                .track-popup-glow {
+                    position: absolute;
+                    inset: -3px;
+                    border-radius: 24px;
+                    background: linear-gradient(135deg, #441088, #6a1fd0, #2980b9, #441088);
+                    background-size: 300% 300%;
+                    animation: glowRotate 4s linear infinite;
+                    filter: blur(10px);
+                    opacity: 0.65;
+                    z-index: -1;
+                }
 
-            .track-header-text h3 {
-                margin: 0; color: #fff; font-size: 1.15rem; font-weight: 700;
-                text-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            }
-            .track-subtitle { font-size: 0.78rem; color: rgba(255,255,255,0.6); margin-top: 2px; display: block; }
+                @keyframes glowRotate {
+                    0% {
+                        background-position: 0% 50%;
+                    }
 
-            .track-close-btn {
-                width: 40px; height: 40px; border-radius: 50%;
-                background: rgba(255,255,255,0.1);
-                border: 1px solid rgba(255,255,255,0.2);
-                color: #fff; font-size: 1rem; cursor: pointer;
-                display: flex; align-items: center; justify-content: center;
-                transition: all 0.25s ease; flex-shrink: 0;
-            }
-            .track-close-btn:hover {
-                background: rgba(231,76,60,0.8);
-                border-color: #e74c3c;
-                transform: rotate(90deg) scale(1.1);
-                box-shadow: 0 4px 15px rgba(231,76,60,0.5);
-            }
+                    50% {
+                        background-position: 100% 50%;
+                    }
 
-            .track-loading-bar { height: 3px; background: rgba(255,255,255,0.05); flex-shrink: 0; overflow: hidden; }
-            .track-loading-progress {
-                height: 100%; width: 0%;
-                background: linear-gradient(90deg, #441088, #9b59b6, #2980b9, #9b59b6);
-                background-size: 200%;
-                animation: progressMove 2s ease forwards, shimmer 1.5s linear infinite;
-            }
-            @keyframes progressMove { 0%{width:0%} 30%{width:50%} 70%{width:80%} 100%{width:95%} }
-            @keyframes shimmer { 0%{background-position:0% center} 100%{background-position:200% center} }
+                    100% {
+                        background-position: 0% 50%;
+                    }
+                }
 
-            .track-popup-body { flex: 1; position: relative; overflow: hidden; }
-            #trackIframe { width: 100%; height: 100%; border: none; display: block; background: #fff; }
+                .track-popup-container {
+                    position: relative;
+                    width: 100%;
+                    height: 100%;
+                    background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 40%, #0d1b3e 100%);
+                    border-radius: 20px;
+                    border: 1px solid rgba(100, 60, 200, 0.35);
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+                }
 
-            .track-loader {
-                position: absolute; inset: 0;
-                background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 100%);
-                display: flex; align-items: center; justify-content: center; z-index: 5;
-                transition: opacity 0.4s ease;
-            }
-            .track-loader.hidden { opacity: 0; pointer-events: none; }
-            .track-loader-inner { text-align: center; }
+                .track-popup-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 18px 25px;
+                    background: linear-gradient(135deg, rgba(68, 16, 136, 0.95) 0%, rgba(41, 128, 185, 0.75) 100%);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    flex-shrink: 0;
+                    position: relative;
+                    overflow: hidden;
+                }
 
-            .track-spinner { width: 80px; height: 80px; position: relative; margin: 0 auto 20px; }
-            .track-spinner-ring {
-                position: absolute; inset: 0; border-radius: 50%;
-                border: 3px solid transparent;
-                animation: spinRing 1.5s linear infinite;
-            }
-            .track-spinner-ring:nth-child(1) { border-top-color: #9b59b6; animation-duration: 1.2s; }
-            .track-spinner-ring:nth-child(2) { inset: 10px; border-right-color: #2980b9; animation-duration: 1.8s; animation-direction: reverse; }
-            .track-spinner-ring:nth-child(3) { inset: 20px; border-bottom-color: #441088; animation-duration: 1s; }
-            @keyframes spinRing { to { transform: rotate(360deg); } }
+                .track-popup-header::before {
+                    content: '';
+                    position: absolute;
+                    top: -50%;
+                    left: -50%;
+                    width: 200%;
+                    height: 200%;
+                    background: radial-gradient(circle at 30% 50%, rgba(255, 255, 255, 0.06) 0%, transparent 60%);
+                    pointer-events: none;
+                }
 
-            .track-spinner-icon {
-                position: absolute; top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                font-size: 1.2rem; color: rgba(255,255,255,0.8);
-                animation: iconFade 1.5s ease-in-out infinite;
-            }
-            @keyframes iconFade { 0%,100%{opacity:0.4} 50%{opacity:1} }
+                .track-header-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                }
 
-            .track-loader-text {
-                color: rgba(255,255,255,0.7); font-size: 0.9rem; margin: 0;
-                animation: textPulse 1.5s ease-in-out infinite;
-            }
-            @keyframes textPulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
+                .track-icon-badge {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 14px;
+                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.08));
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 1.3rem;
+                    color: #fff;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+                    animation: iconPulse 3s ease-in-out infinite;
+                }
 
-            .track-popup-footer {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 12px 25px;
-                background: rgba(0,0,0,0.3);
-                border-top: 1px solid rgba(255,255,255,0.07);
-                flex-shrink: 0;
-            }
-            .track-footer-info { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.4); font-size: 0.78rem; }
-            .track-footer-info i { color: #9b59b6; }
+                @keyframes iconPulse {
 
-            .track-footer-close-btn {
-                display: flex; align-items: center; gap: 7px;
-                padding: 8px 22px;
-                background: linear-gradient(135deg, rgba(68,16,136,0.7), rgba(41,128,185,0.5));
-                border: 1px solid rgba(155,89,182,0.5);
-                border-radius: 20px; color: #fff;
-                font-size: 0.82rem; font-weight: 600; cursor: pointer;
-                transition: all 0.25s ease;
-                font-family: 'Cairo', sans-serif;
-            }
-            .track-footer-close-btn:hover {
-                background: linear-gradient(135deg, #441088, #2980b9);
-                border-color: #9b59b6;
-                box-shadow: 0 4px 15px rgba(68,16,136,0.5);
-                transform: translateY(-1px);
-            }
+                    0%,
+                    100% {
+                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(100, 60, 200, 0.4);
+                    }
 
-            @media (max-width: 768px) {
-                .track-popup-wrapper { height: 93vh; }
-                .track-popup-header { padding: 12px 15px; }
-                .track-header-text h3 { font-size: 0.95rem; }
-                .track-subtitle, .track-footer-info { display: none; }
-                .track-popup-footer { justify-content: center; }
-            }
+                    50% {
+                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 0 10px rgba(100, 60, 200, 0);
+                    }
+                }
+
+                .track-header-text h3 {
+                    margin: 0;
+                    color: #fff;
+                    font-size: 1.15rem;
+                    font-weight: 700;
+                    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                }
+
+                .track-subtitle {
+                    font-size: 0.78rem;
+                    color: rgba(255, 255, 255, 0.6);
+                    margin-top: 2px;
+                    display: block;
+                }
+
+                .track-close-btn {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    color: #fff;
+                    font-size: 1rem;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: all 0.25s ease;
+                    flex-shrink: 0;
+                }
+
+                .track-close-btn:hover {
+                    background: rgba(231, 76, 60, 0.8);
+                    border-color: #e74c3c;
+                    transform: rotate(90deg) scale(1.1);
+                    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.5);
+                }
+
+                .track-loading-bar {
+                    height: 3px;
+                    background: rgba(255, 255, 255, 0.05);
+                    flex-shrink: 0;
+                    overflow: hidden;
+                }
+
+                .track-loading-progress {
+                    height: 100%;
+                    width: 0%;
+                    background: linear-gradient(90deg, #441088, #9b59b6, #2980b9, #9b59b6);
+                    background-size: 200%;
+                    animation: progressMove 2s ease forwards, shimmer 1.5s linear infinite;
+                }
+
+                @keyframes progressMove {
+                    0% {
+                        width: 0%
+                    }
+
+                    30% {
+                        width: 50%
+                    }
+
+                    70% {
+                        width: 80%
+                    }
+
+                    100% {
+                        width: 95%
+                    }
+                }
+
+                @keyframes shimmer {
+                    0% {
+                        background-position: 0% center
+                    }
+
+                    100% {
+                        background-position: 200% center
+                    }
+                }
+
+                .track-popup-body {
+                    flex: 1;
+                    position: relative;
+                    overflow: hidden;
+                }
+
+                #trackIframe {
+                    width: 100%;
+                    height: 100%;
+                    border: none;
+                    display: block;
+                    background: #fff;
+                }
+
+                .track-loader {
+                    position: absolute;
+                    inset: 0;
+                    background: linear-gradient(160deg, #0f0b2e 0%, #1a1040 100%);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 5;
+                    transition: opacity 0.4s ease;
+                }
+
+                .track-loader.hidden {
+                    opacity: 0;
+                    pointer-events: none;
+                }
+
+                .track-loader-inner {
+                    text-align: center;
+                }
+
+                .track-spinner {
+                    width: 80px;
+                    height: 80px;
+                    position: relative;
+                    margin: 0 auto 20px;
+                }
+
+                .track-spinner-ring {
+                    position: absolute;
+                    inset: 0;
+                    border-radius: 50%;
+                    border: 3px solid transparent;
+                    animation: spinRing 1.5s linear infinite;
+                }
+
+                .track-spinner-ring:nth-child(1) {
+                    border-top-color: #9b59b6;
+                    animation-duration: 1.2s;
+                }
+
+                .track-spinner-ring:nth-child(2) {
+                    inset: 10px;
+                    border-right-color: #2980b9;
+                    animation-duration: 1.8s;
+                    animation-direction: reverse;
+                }
+
+                .track-spinner-ring:nth-child(3) {
+                    inset: 20px;
+                    border-bottom-color: #441088;
+                    animation-duration: 1s;
+                }
+
+                @keyframes spinRing {
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                .track-spinner-icon {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    font-size: 1.2rem;
+                    color: rgba(255, 255, 255, 0.8);
+                    animation: iconFade 1.5s ease-in-out infinite;
+                }
+
+                @keyframes iconFade {
+
+                    0%,
+                    100% {
+                        opacity: 0.4
+                    }
+
+                    50% {
+                        opacity: 1
+                    }
+                }
+
+                .track-loader-text {
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 0.9rem;
+                    margin: 0;
+                    animation: textPulse 1.5s ease-in-out infinite;
+                }
+
+                @keyframes textPulse {
+
+                    0%,
+                    100% {
+                        opacity: 0.5
+                    }
+
+                    50% {
+                        opacity: 1
+                    }
+                }
+
+                .track-popup-footer {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 12px 25px;
+                    background: rgba(0, 0, 0, 0.3);
+                    border-top: 1px solid rgba(255, 255, 255, 0.07);
+                    flex-shrink: 0;
+                }
+
+                .track-footer-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: rgba(255, 255, 255, 0.4);
+                    font-size: 0.78rem;
+                }
+
+                .track-footer-info i {
+                    color: #9b59b6;
+                }
+
+                .track-footer-close-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 7px;
+                    padding: 8px 22px;
+                    background: linear-gradient(135deg, rgba(68, 16, 136, 0.7), rgba(41, 128, 185, 0.5));
+                    border: 1px solid rgba(155, 89, 182, 0.5);
+                    border-radius: 20px;
+                    color: #fff;
+                    font-size: 0.82rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.25s ease;
+                    font-family: 'Cairo', sans-serif;
+                }
+
+                .track-footer-close-btn:hover {
+                    background: linear-gradient(135deg, #441088, #2980b9);
+                    border-color: #9b59b6;
+                    box-shadow: 0 4px 15px rgba(68, 16, 136, 0.5);
+                    transform: translateY(-1px);
+                }
+
+                @media (max-width: 768px) {
+                    .track-popup-wrapper {
+                        height: 93vh;
+                    }
+
+                    .track-popup-header {
+                        padding: 12px 15px;
+                    }
+
+                    .track-header-text h3 {
+                        font-size: 0.95rem;
+                    }
+
+                    .track-subtitle,
+                    .track-footer-info {
+                        display: none;
+                    }
+
+                    .track-popup-footer {
+                        justify-content: center;
+                    }
+                }
             </style>
 
             <!-- مودال تأكيد الأرشفة -->
-<div id="archiveConfirmModal" class="modal-overlay" style="display: none;">
-    <div class="modal-content" style="max-width: 450px;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">
-            <h3><i class="fas fa-archive"></i> تأكيد الأرشفة</h3>
-            <button type="button" onclick="closeArchiveConfirmModal()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
-        </div>
-        <div class="modal-body" style="padding: 25px; text-align: center;">
-            <i class="fas fa-question-circle" style="font-size: 4rem; color: #9b59b6; margin-bottom: 15px;"></i>
-            <p style="font-size: 1.1rem; margin-bottom: 25px; color: #34495e;">هل أنت متأكد من أرشفة هذا المستند؟</p>
-            <p style="font-size: 0.9rem; color: #7f8c8d; margin-bottom: 20px;" id="archiveDocumentTitle"></p>
-            <div style="display: flex; gap: 15px; justify-content: center;">
-                <button onclick="proceedArchive()" class="btnx" style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
-                    <i class="fas fa-check"></i> تأكيد الأرشفة
-                </button>
-                <button onclick="closeArchiveConfirmModal()" class="btnx btn-secondary" style="background: #95a5a6; color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
-                    <i class="fas fa-times"></i> إلغاء
-                </button>
+            <div id="archiveConfirmModal" class="modal-overlay" style="display: none;">
+                <div class="modal-content" style="max-width: 450px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">
+                        <h3><i class="fas fa-archive"></i> تأكيد الأرشفة</h3>
+                        <button type="button" onclick="closeArchiveConfirmModal()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 25px; text-align: center;">
+                        <i class="fas fa-question-circle" style="font-size: 4rem; color: #9b59b6; margin-bottom: 15px;"></i>
+                        <p style="font-size: 1.1rem; margin-bottom: 25px; color: #34495e;">هل أنت متأكد من أرشفة هذا المستند؟</p>
+                        <p style="font-size: 0.9rem; color: #7f8c8d; margin-bottom: 20px;" id="archiveDocumentTitle"></p>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="proceedArchive()" class="btnx" style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-check"></i> تأكيد الأرشفة
+                            </button>
+                            <button onclick="closeArchiveConfirmModal()" class="btnx btn-secondary" style="background: #95a5a6; color: white; padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-times"></i> إلغاء
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
-</div>
         </div>
     </div>
 
@@ -1643,17 +1878,19 @@ text-decoration: none;">
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
-    // دالة إخفاء شاشة التحميل بعد اكتمال الـ iframe
-    function hideTrackLoader() {
-        const loader = document.getElementById('trackLoader');
-        const loadingBar = document.getElementById('trackLoadingBar');
-        if (loader) loader.classList.add('hidden');
-        if (loadingBar) {
-            const progress = loadingBar.querySelector('.track-loading-progress');
-            if (progress) progress.style.width = '100%';
-            setTimeout(() => { loadingBar.style.opacity = '0'; }, 400);
+        // دالة إخفاء شاشة التحميل بعد اكتمال الـ iframe
+        function hideTrackLoader() {
+            const loader = document.getElementById('trackLoader');
+            const loadingBar = document.getElementById('trackLoadingBar');
+            if (loader) loader.classList.add('hidden');
+            if (loadingBar) {
+                const progress = loadingBar.querySelector('.track-loading-progress');
+                if (progress) progress.style.width = '100%';
+                setTimeout(() => {
+                    loadingBar.style.opacity = '0';
+                }, 400);
+            }
         }
-    }
     </script>
     <script src="../assets/js/board_scr.js"></script>
 </body>

@@ -266,7 +266,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }, 500);
     }
-  }
+  }// تعديل روابط أزرار الحذف في HTML (تأكد من أن كل زر يستدعي deleteDocument(doc.id) فقط)
+// الموجود بالفعل: onclick="deleteDocument(<?php echo $doc['id']; ?>)"
 
   // تهيئة البحث الفوري
   initializeInstantSearch();
@@ -628,92 +629,7 @@ function updateStatsAfterDelete() {
   // سنقوم فقط بإنقاص العدد الكلي للمستندات الظاهرة في الفلاتر
 }
 
-// تعديل روابط أزرار الحذف في HTML (تأكد من أن كل زر يستدعي deleteDocument(doc.id) فقط)
-// الموجود بالفعل: onclick="deleteDocument(<?php echo $doc['id']; ?>)"
 
-// دالة أرشفة المستند للديون - محدثة للتعامل مع المجلدات حسب الأولوية
-function archiveBoardDocument(docId, priority) {
-  const docElement =
-    event.target.closest(".document-card") || event.target.closest("tr");
-  let docTitle = "";
-
-  if (docElement.querySelector(".document-title")) {
-    docTitle = docElement.querySelector(".document-title").textContent;
-  } else if (docElement.querySelector("td:nth-child(2)")) {
-    docTitle = docElement.querySelector("td:nth-child(2)").textContent.trim();
-  }
-
-  const folderName =
-    priority === "urgent" ? "سري" : priority === "high" ? "عاجل" : "عادي";
-
-  const message = docTitle
-    ? `هل أنت متأكد من أرشفة المستند "${docTitle}"؟`
-    : "هل أنت متأكد من أرشفة هذا المستند؟";
-
-  const confirmMessage =
-    message + `\n\nسيتم نقله إلى مجلد "${folderName}" في الأرشيف.`;
-
-  if (!confirm(confirmMessage)) {
-    return;
-  }
-
-  const btn = event.target.closest("button");
-  const originalHTML = btn.innerHTML;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  btn.disabled = true;
-
-  fetch("archive_board_document.php", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: `document_id=${docId}&priority=${encodeURIComponent(priority)}`,
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error("Network response was not ok");
-      }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.success) {
-        showToast("نجاح", `تم أرشفة المستند بنجاح`, "success");
-
-        // إخفاء المستند من الواجهة
-        const docCard = btn.closest(".document-card");
-        const docRow = btn.closest("tr");
-
-        if (docCard) {
-          docCard.style.transition = "all 0.5s ease";
-          docCard.style.opacity = "0.3";
-          docCard.style.transform = "scale(0.95)";
-
-          setTimeout(() => {
-            docCard.style.display = "none";
-            updateDocumentCount(-1);
-          }, 300);
-        } else if (docRow) {
-          docRow.style.transition = "all 0.5s ease";
-          docRow.style.opacity = "0.3";
-
-          setTimeout(() => {
-            docRow.style.display = "none";
-            updateDocumentCount(-1);
-          }, 300);
-        }
-      } else {
-        showToast("خطأ", data.message || "حدث خطأ في الأرشفة", "error");
-        btn.innerHTML = originalHTML;
-        btn.disabled = false;
-      }
-    })
-    .catch((error) => {
-      console.error("Error:", error);
-      showToast("خطأ", "حدث خطأ في الاتصال بالخادم", "error");
-      btn.innerHTML = originalHTML;
-      btn.disabled = false;
-    });
-}
 // دالة تحديث عداد المستندات
 function updateDocumentCount(change) {
   const totalDocsElement = document.querySelector(
@@ -1113,4 +1029,72 @@ function viewDocumentInArchive(docId) {
 function exportResults() {
   const filters = new URLSearchParams(window.location.search);
   window.location.href = "export_board_data.php?" + filters.toString();
+}
+// متغيرات الأرشفة
+let currentArchiveId = null;
+let currentArchivePriority = 'normal';
+
+// دالة فتح مودال التأكيد
+function archiveBoardDocument(docId, priority, docTitle) {
+    currentArchiveId = docId;
+    currentArchivePriority = priority || 'normal';
+    document.getElementById('archiveDocumentTitle').innerText = 'المستند: ' + docTitle;
+    document.getElementById('archiveConfirmModal').style.display = 'flex';
+}
+
+// إغلاق المودال
+function closeArchiveConfirmModal() {
+    document.getElementById('archiveConfirmModal').style.display = 'none';
+    currentArchiveId = null;
+}
+
+// تنفيذ الأرشفة بعد التأكيد
+function proceedArchive() {
+    if (!currentArchiveId) {
+        closeArchiveConfirmModal();
+        return;
+    }
+
+    // إظهار مؤشر التحميل داخل الزر إذا أردت (اختياري)
+    const confirmBtn = document.querySelector('#archiveConfirmModal .btnx:first-child');
+    const originalText = confirmBtn.innerHTML;
+    confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الأرشفة...';
+    confirmBtn.disabled = true;
+
+    fetch('archive_board_document.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'document_id=' + currentArchiveId + '&priority=' + encodeURIComponent(currentArchivePriority)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('success', data.message);
+            // إعادة تحميل الصفحة بعد ثانية ونصف
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('error', data.message);
+            // إعادة تمكين الزر
+            confirmBtn.innerHTML = originalText;
+            confirmBtn.disabled = false;
+        }
+        closeArchiveConfirmModal();
+    })
+    .catch(error => {
+        showToast('error', 'حدث خطأ في الاتصال بالخادم');
+        confirmBtn.innerHTML = originalText;
+        confirmBtn.disabled = false;
+        closeArchiveConfirmModal();
+    });
+}
+
+// دالة showToast (إذا لم تكن موجودة)
+function showToast(type, message) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i> ${message}`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 }
